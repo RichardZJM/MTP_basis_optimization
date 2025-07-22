@@ -1,0 +1,4 @@
+*.stats
+*tmp*
+*almtp
+__pycache__
