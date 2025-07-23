@@ -79,7 +79,6 @@ def prune_tree(mask):
 
         for parent1, parent2 in parents[i]:
             ntimes -= 1
-
             local_nchildren[parent1] -= 1
             local_nchildren[parent2] -= 1
 

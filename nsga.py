@@ -11,8 +11,8 @@ from pymoo.operators.sampling.rnd import BinaryRandomSampling
 from pymoo.core.problem import StarmapParallelization
 
 from costs import prune_tree
-from ols import calculate_sse
-from gols import calculate_sse_gpu
+from wls import calculate_sse
+from gwls import calculate_sse_gpu
 from mtpio import parse_mtp_file, write_mtp_file
 from assemblemtp import assemble_new_tree
 
@@ -42,7 +42,7 @@ if __name__ == "__main__":
         mutation=BitflipMutation(),
     )
 
-    res = minimize(problem, algorithm, ("n_gen", 50), seed=42, verbose=False)
+    res = minimize(problem, algorithm, ("n_gen", 1000), seed=42, verbose=False)
     print(f"Time taken: {res.exec_time} seconds")
 
     mask = np.ones(163).astype(bool)
@@ -53,10 +53,13 @@ if __name__ == "__main__":
     sorted_F = res.F[sorted_indices]
     sorted_X = res.X[sorted_indices]
 
+    np.savetxt("outputs/pop.csv", sorted_X.astype(int), delimiter=",", fmt="%d")
+    np.savetxt("outputs/obj.csv", sorted_F, delimiter=",")
+
     # print(sorted_X, sorted_F)
-    mtp18 = parse_mtp_file("18.almtp")
-    new18 = assemble_new_tree(mtp18, sorted_X[-1])
-    write_mtp_file(new18, "tmp.almtp")
+    # mtp18 = parse_mtp_file("18.almtp")
+    # new18 = assemble_new_tree(mtp18, sorted_X[-1])
+    # write_mtp_file(new18, "tmp.almtp")
 
     plot = Scatter()
     plot.add(problem.pareto_front(), plot_type="line", color="black", alpha=0.7)

@@ -4,18 +4,18 @@ energies = np.genfromtxt("data/energies.txt", delimiter=",")
 bases = np.genfromtxt("data/bases.txt", delimiter=" ")
 counts = np.genfromtxt("data/counts.txt", delimiter=",")
 
-
-XTX = bases.T @ bases
-XTy = bases.T @ energies
+XTW = bases.T * counts
+XTWX = XTW @ bases
+XTWy = XTW @ energies
 
 
 def calculate_sse(mask):
     """Calculates sum of squared errors for a given feature mask."""
-    XTXm = XTX[mask][:, mask]
-    XTym = XTy[mask]
-    theta = np.linalg.solve(XTXm, XTym)
-    errs = bases[:, mask] @ theta - energies  # * counts
-    return (np.sum(errs**2) / len(errs)) ** 0.5
+    XTWXm = XTWX[mask][:, mask]
+    XTWym = XTWy[mask]
+    theta = np.linalg.solve(XTWXm, XTWym)
+    residuals = (bases[:, mask] @ theta - energies) * counts
+    return np.sum(residuals**2)
 
 
 if __name__ == "__main__":

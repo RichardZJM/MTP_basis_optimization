@@ -5,14 +5,15 @@ import numpy as np
 
 energies_np = np.genfromtxt("data/energies.txt", delimiter=",")
 bases_np = np.genfromtxt("data/bases.txt", delimiter=" ")
-# counts_np = np.genfromtxt("data/counts.txt", delimiter=",") # Uncomment if you use counts
+counts_np = np.genfromtxt("data/counts.txt", delimiter=",")
 
 energies_gpu = cp.asarray(energies_np)
 bases_gpu = cp.asarray(bases_np)
-# counts_gpu = cp.asarray(counts_np) # Uncomment if you use counts
+counts_gpu = cp.asarray(counts_np)
 
-XTX_gpu = bases_gpu.T @ bases_gpu
-XTy_gpu = bases_gpu.T @ energies_gpu
+XTW = bases_gpu.T * counts_gpu
+XTWX_gpu = XTW @ bases_gpu
+XTWy_gpu = XTW @ energies_gpu
 
 
 # --- 2. The GPU-Accelerated SSE Function ---
@@ -23,15 +24,14 @@ def calculate_sse_gpu(mask):
     Calculates sum of squared errors on the GPU for a given feature mask.
     """
     mask_gpu = cp.asarray(mask)
-    XTXm = XTX_gpu[mask_gpu][:, mask_gpu]
-    XTym = XTy_gpu[mask_gpu]
+    XTXm = XTWX_gpu[mask_gpu][:, mask_gpu]
+    XTym = XTWy_gpu[mask_gpu]
 
     try:
         theta = cp.linalg.solve(XTXm, XTym)
     except cp.linalg.LinAlgError:
         return float("inf")
 
-    errs = bases_gpu[:, mask_gpu] @ theta - energies_gpu
-
-    rmse = (cp.sum(errs**2) / len(errs)) ** 0.5
-    return rmse.get()
+    residuals = (bases_gpu[:, mask_gpu] @ theta - energies_gpu) * counts_gpu
+    sse = cp.sum(residuals**2)
+    return sse.get()
