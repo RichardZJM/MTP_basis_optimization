@@ -29,7 +29,7 @@ if __name__ == "__main__":
         bases_file=BASES_FILE,
         energies_file=ENERGIES_FILE,
         counts_file=COUNTS_FILE,
-        neigh_count=16,
+        neigh_count=24,
         output_dir=OUTPUT_DIR,
         device="cpu",
         n_generations=10,
