@@ -1,10 +1,16 @@
 import numpy as np
-from mtpio import parse_mtp_file, write_mtp_file
 
 
 def assemble_new_tree(original_mtp, mask):
     """
     Assembles a new, pruned MTP tree. Uses minimum node indexing; preserves ordering.
+
+    Args:
+        mtp_file (dict): A dictionary containing inital MTP data.
+        mask (np.ndarray): mask of pruned scalar vectors.
+
+    Returns:
+        dict: A dictionary containing the pruned MTP data.
     """
     # Create parent tree
     parents_lookup = [[] for _ in range(original_mtp["alpha_moments_count"])]
@@ -97,12 +103,3 @@ def assemble_new_tree(original_mtp, mask):
     new_mtp["alpha_moment_mapping"] = new_scalar_indices
 
     return new_mtp
-
-
-if __name__ == "__main__":
-    mtp18 = parse_mtp_file("18.almtp")
-    mask = np.ones(mtp18["alpha_scalar_moments"]).astype(bool)
-    mask[3:160] = False  # 12 is a very contracted scalar
-    new_mtp = assemble_new_tree(mtp18, mask)
-
-    write_mtp_file(new_mtp, "tmp.almtp")

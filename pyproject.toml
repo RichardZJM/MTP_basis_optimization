@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mtpoptimizer"
+version = "0.1.0"
+authors = [
+  { name="Zijian Meng", email="richardzjm@gmail.com" },
+]
+description = "A package for accuracy-cost optimization of MTP potentials."
+readme = "README.md"
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "numpy",
+    "pymoo>=0.6.0",
+    "regex"
+]
+
+[project.optional-dependencies]
+gpu = ["cupy"]
+
