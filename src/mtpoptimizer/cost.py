@@ -6,7 +6,7 @@ class MTPCostCalculator:
     Calculates a computational cost heuristic for a pruned MTP tree.
     """
 
-    def __init__(self, mtp_data: dict):
+    def __init__(self, mtp_data: dict, neigh_count: int, radial_basis_size: int):
         """
         Initializes the cost calculator with data from a parsed MTP file.
 
@@ -18,6 +18,9 @@ class MTPCostCalculator:
         self.times_indices = mtp_data["alpha_index_times"]
         self.scalar_indices = mtp_data["alpha_moment_mapping"]
         self.num_moments = mtp_data["alpha_moments_count"]
+
+        self.neigh_count = neigh_count
+        self.radial_basis_size = radial_basis_size
 
         # Cache the root values and graph structure
         self._prepare_graph()
@@ -42,21 +45,19 @@ class MTPCostCalculator:
             self.nchildren[p1] += 1
             self.nchildren[p2] += 1
 
-    @staticmethod
     def _cost_heuristic(
+        self,
         max_rank,
         radial_func_count,
         alpha_basic,
         alpha_times,
-        neigh_count=25,
-        radial_basis_size=8,
     ):
         """The core cost formula."""
         precompute = 4 * max_rank
-        radial_vals = 4 * radial_func_count * radial_basis_size
+        radial_vals = 4 * radial_func_count * self.radial_basis_size
         basics = 33 * alpha_basic
         times = 9 * alpha_times
-        return neigh_count * (precompute + radial_vals + basics) + times
+        return self.neigh_count * (precompute + radial_vals + basics) + times
 
     def calculate(self, mask):
         """
@@ -119,4 +120,9 @@ class MTPCostCalculator:
         max_rank_val = np.count_nonzero(max_ranks)
         radial_func_count_val = np.count_nonzero(max_mus)
 
-        return self._cost_heuristic(max_rank_val, radial_func_count_val, nbasic, ntimes)
+        return self._cost_heuristic(
+            max_rank_val,
+            radial_func_count_val,
+            nbasic,
+            ntimes,
+        )

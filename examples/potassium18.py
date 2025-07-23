@@ -16,12 +16,13 @@ COUNTS_FILE = os.path.join(DATA_DIR, "counts.txt")
 OUTPUT_DIR = "optimization_results"
 
 if __name__ == "__main__":
-    # Run the main optimization
     result = run_optimization(
         mtp_file=MTP_FILE,
         bases_file=BASES_FILE,
         energies_file=ENERGIES_FILE,
         counts_file=COUNTS_FILE,
+        neigh_count=16,
+        radial_basis_size=8,
         output_dir=OUTPUT_DIR,
         device="cpu",
         n_generations=100,

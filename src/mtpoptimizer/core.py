@@ -36,6 +36,8 @@ def run_optimization(
     bases_file,
     energies_file,
     counts_file,
+    neigh_count,
+    radial_basis_size,
     output_dir="outputs",
     device="cpu",
     n_generations=1000,
@@ -52,6 +54,8 @@ def run_optimization(
         bases_file (str): Path to the bases.txt file.
         energies_file (str): Path to the energies.txt file.
         counts_file (str): Path to the counts.txt file.
+        neigh_count (int): Estimated number of neighbors per neighborhood.
+        radial_basis_size (int): Size of each radial basis set.
         output_dir (str): Directory to save results.
         device (str): 'cpu' or 'gpu'.
         n_generations (int): Number of generations for NSGA-II.
@@ -79,7 +83,7 @@ def run_optimization(
 
     # 2. Initialize calculators
     print(f"2. Initializing calculators (device: {device})...")
-    cost_calculator = MTPCostCalculator(mtp_data)
+    cost_calculator = MTPCostCalculator(mtp_data, neigh_count, radial_basis_size)
     sse_calculator = SSECalculator(bases, energies, counts, device=device)
 
     # 3. Set up parallelization
