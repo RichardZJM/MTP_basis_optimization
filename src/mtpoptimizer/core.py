@@ -37,7 +37,6 @@ def run_optimization(
     energies_file,
     counts_file,
     neigh_count,
-    radial_basis_size,
     output_dir="outputs",
     device="cpu",
     n_generations=1000,
@@ -55,7 +54,6 @@ def run_optimization(
         energies_file (str): Path to the energies.txt file.
         counts_file (str): Path to the counts.txt file.
         neigh_count (int): Estimated number of neighbors per neighborhood.
-        radial_basis_size (int): Size of each radial basis set.
         output_dir (str): Directory to save results.
         device (str): 'cpu' or 'gpu'.
         n_generations (int): Number of generations for NSGA-II.
@@ -80,6 +78,7 @@ def run_optimization(
     counts = np.genfromtxt(counts_file, delimiter=",")
 
     n_var = mtp_data["alpha_scalar_moments"]
+    radial_basis_size = mtp_data["radial_basis_size"]
 
     # 2. Initialize calculators
     print(f"2. Initializing calculators (device: {device})...")
@@ -114,6 +113,13 @@ def run_optimization(
     print(f"Optimization finished in {res.exec_time} seconds.")
 
     pool.close()
+
+    # Print the original MTP
+    no_mask = np.ones(n_var).astype(bool)
+    cost = cost_calculator.calculate(no_mask)
+    sse = sse_calculator.calculate(np.append(no_mask, True))
+    print(f"Base SSE : {sse:.6f}")
+    print(f"Corresponding cost: {cost}")
 
     # 7. Process and save results
     if not os.path.exists(output_dir):

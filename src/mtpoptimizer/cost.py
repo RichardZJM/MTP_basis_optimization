@@ -55,9 +55,9 @@ class MTPCostCalculator:
         """The core cost formula."""
         precompute = 4 * max_rank
         radial_vals = 4 * radial_func_count * self.radial_basis_size
-        basics = 33 * alpha_basic
+        basics = 39 * alpha_basic
         times = 9 * alpha_times
-        return self.neigh_count * (precompute + radial_vals + basics) + times
+        return self.neigh_count * (24 + precompute + radial_vals + basics) + times
 
     def calculate(self, mask):
         """
