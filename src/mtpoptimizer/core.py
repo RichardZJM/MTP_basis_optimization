@@ -1,5 +1,6 @@
 import numpy as np
 import os
+import atexit
 
 from pymoo.core.problem import Problem
 from pymoo.algorithms.moo.nsga2 import NSGA2
@@ -15,7 +16,6 @@ from .mtpio import parse_mtp_file
 
 try:
     from mpi4py import MPI
-    import atexit
 
     COMM = MPI.COMM_WORLD
     RANK = COMM.Get_rank()
@@ -27,48 +27,35 @@ except ImportError:
     SIZE = 1
     IS_MPI = False
 
-# ==============================================================================
-#  BEGIN: MPI-SPECIFIC HELPER FUNCTIONS
-# ==============================================================================
+
 if IS_MPI:
-    TAG_TASK = 1
-    TAG_RESULT = 2
-    TAG_SHUTDOWN = 3
 
-    def mpi_worker_routine(problem_args):
-        """The main loop for a worker process. It waits for and executes tasks."""
-        problem = MTPPruningProblem(**problem_args)
-        # print(f"Worker (rank {RANK}) initialized and ready.")
-
-        status = MPI.Status()
+    def mpi_worker_routine(problem):
+        """
+        The main loop for a worker process.
+        """
         while True:
-            task_data = COMM.recv(source=0, tag=MPI.ANY_TAG, status=status)
-            if status.Get_tag() == TAG_SHUTDOWN:
-                # print(f"Worker (rank {RANK}) received shutdown signal. Exiting.")
+            continue_eval = COMM.bcast(None, root=0)
+
+            if not continue_eval:
                 break
 
-            task_index, x_i = task_data
-            out = {}
-            problem._evaluate(x_i, out)
-            COMM.send((task_index, out["F"]), dest=0, tag=TAG_RESULT)
+            x_chunk = COMM.scatter(None, root=0)
+            results_chunk = problem.evaluate_chunk(x_chunk)
+            COMM.gather(results_chunk, root=0)
 
     def shutdown_workers():
-        """Master's hook to tell workers to exit cleanly."""
-        n_workers = SIZE - 1
-        print("Master (rank 0) is shutting down workers...")
-        for i in range(n_workers):
-            COMM.send(None, dest=i + 1, tag=TAG_SHUTDOWN)
-
-
-# ==============================================================================
-#  END: MPI-SPECIFIC HELPER FUNCTIONS
-# ==============================================================================
+        """
+        Master's signal to send a shutdown.
+        """
+        if RANK == 0:
+            print("Master (rank 0) is shutting down workers...")
+            COMM.bcast(False, root=0)
 
 
 class MTPPruningProblem(Problem):
     """
     The core problem definition.
-    This class is now self-aware of the execution environment (MPI master, serial, or MPI worker).
     """
 
     def __init__(
@@ -79,8 +66,7 @@ class MTPPruningProblem(Problem):
         counts_file,
         neigh_count,
     ):
-
-        # Currently all process acess IO. Not great but simple.
+        # All processes initialize the problem to have access to calculators
         mtp_data = parse_mtp_file(mtp_file)
         radial_basis_size = mtp_data["radial_basis_size"]
         self.cost_calculator = MTPCostCalculator(
@@ -93,76 +79,49 @@ class MTPPruningProblem(Problem):
         self.sse_calculator = SSECalculator(bases, energies, counts)
 
         n_var = mtp_data["alpha_scalar_moments"]
-        super().__init__(n_var=n_var, n_obj=2, elementwise=False)
+
+        if RANK == 0:
+            mask = np.ones(n_var, dtype=bool)
+            print(
+                f"Base SSE: {self.sse_calculator.calculate(np.append(mask,True)):.6f}"
+            )
+            print(f"Base cost: {self.cost_calculator.calculate(mask)}")
+
+        super().__init__(n_var=n_var, n_obj=2, xl=0, xu=1, type_var=bool)
+
+    def evaluate_chunk(self, X_chunk):
+        """
+        Evaluates a chunk of individuals.
+        """
+        results = []
+        for x_i in X_chunk:
+            full_mask = np.append(x_i, True)
+            cost = self.cost_calculator.calculate(x_i)
+            sse = self.sse_calculator.calculate(full_mask)
+            results.append([cost, sse])
+        return np.ascontiguousarray(results, dtype=np.float64)
 
     def _evaluate(self, X, out, *args, **kwargs):
         """
-        This method's behavior depends on the execution context.
+        This method is called by pymoo's `minimize` function.
+        In serial mode, it evaluates all individuals directly.
+        In MPI mode, serves as a wrapper.
         """
-        # --- BEHAVIOR FOR MPI MASTER ---
-        if IS_MPI and RANK == 0:
+        if IS_MPI:  # Only run by master.
+            COMM.bcast(True, root=0)  # Send signal to start workers
 
-            n_eval = X.shape[0]
-            if n_eval == 0:
-                return
+            # Ensure contigious for MPI call
+            sendbuf = np.ascontiguousarray(X, dtype=bool)
+            chunks = np.array_split(sendbuf, SIZE)
+            x_chunk = COMM.scatter(chunks, root=0)
 
-            results = [None] * n_eval
+            results_chunk = self.evaluate_chunk(x_chunk)
+            gathered_results = COMM.gather(results_chunk, root=0)
 
-            # Use a list as a queue of task indices to be sent
-            tasks_to_do = list(range(n_eval))
-            tasks_sent_count = 0
-            tasks_received_count = 0
+            out["F"] = np.vstack(gathered_results) if gathered_results else np.array([])
 
-            # Send one task to each worker, or until we run out of tasks.
-            for worker_rank in range(1, SIZE):
-                if tasks_to_do:
-                    task_index = tasks_to_do.pop(0)
-                    COMM.send(
-                        (task_index, X[task_index]), dest=worker_rank, tag=TAG_TASK
-                    )
-                    tasks_sent_count += 1
-                else:
-                    break
-            # Continue until all results are received.
-            status = MPI.Status()
-            while tasks_received_count < n_eval:
-                # Wait for ANY worker to finish and send a result
-                result_data = COMM.recv(
-                    source=MPI.ANY_SOURCE, tag=TAG_RESULT, status=status
-                )
-                worker_rank = status.Get_source()  # Find out who sent it
-                task_index, F = result_data
-
-                results[task_index] = F
-                tasks_received_count += 1
-
-                # Send a task to the free worker
-                if tasks_to_do:
-                    new_task_index = tasks_to_do.pop(0)
-                    COMM.send(
-                        (new_task_index, X[new_task_index]),
-                        dest=worker_rank,
-                        tag=TAG_TASK,
-                    )
-                    tasks_sent_count += 1
-
-            out["F"] = np.array(results)
-
-        # --- SERIAL or MPI WORKER ---
-        else:
-            if X.ndim == 1:  # A single individual from a worker task
-                full_mask = np.append(X, True)
-                cost = self.cost_calculator.calculate(X)
-                sse = self.sse_calculator.calculate(full_mask)
-                out["F"] = np.array([cost, sse])
-            else:  # A batch of individuals from a serial run
-                results = []
-                for x_i in X:
-                    full_mask = np.append(x_i, True)
-                    cost = self.cost_calculator.calculate(x_i)
-                    sse = self.sse_calculator.calculate(full_mask)
-                    results.append([cost, sse])
-                out["F"] = np.array(results)
+        else:  # Serial execution
+            out["F"] = self.evaluate_chunk(X)
 
 
 def run_optimization(
@@ -179,32 +138,27 @@ def run_optimization(
     verbose=True,
 ):
     """
-    Runs MTP optimization in serial or with MPI if launched via mpiexec.
+    Runs MTP optimization.
     """
-    # --- MPI WORKER BRANCH ---
-    if IS_MPI and RANK > 0:
-        problem_args = {
-            "mtp_file": mtp_file,
-            "bases_file": bases_file,
-            "energies_file": energies_file,
-            "counts_file": counts_file,
-            "neigh_count": neigh_count,
-        }
-        mpi_worker_routine(problem_args)
-        return
-
-    # --- MASTER / SERIAL BRANCH ---
-    if RANK == 0:
-        print("--- MTP Optimizer ---")
-        if IS_MPI:
-            print(f"Mode: MPI Parallel ({SIZE} processes)")
-            atexit.register(shutdown_workers)
-        else:
-            print("Mode: Serial")
 
     problem = MTPPruningProblem(
         mtp_file, bases_file, energies_file, counts_file, neigh_count
     )
+
+    if IS_MPI and RANK > 0:  # MPI Workers
+        mpi_worker_routine(problem)
+        return
+
+    # ===== MASTER / SERIAL BRANCH  past this point =====
+    if RANK == 0:
+        print("--- MTP Optimizer ---")
+        if IS_MPI:
+            print(f"Mode: MPI Parallel ({SIZE} processes)")
+            atexit.register(
+                shutdown_workers
+            )  # Register the shutdown hook as a safety net
+        else:
+            print("Mode: Serial")
 
     algorithm = NSGA2(
         pop_size=pop_size,
@@ -213,10 +167,12 @@ def run_optimization(
         mutation=BitflipMutation(),
     )
 
-    # print(f"Starting optimization for {n_generations} generations...")
     res = minimize(problem, algorithm, end_condition, seed=seed, verbose=verbose)
 
-    # --- Post-processing and saving (only on master/serial) ---
+    if IS_MPI:
+        shutdown_workers()
+
+    # --- Post-processing and saving ---
     if RANK == 0:
         print(f"Optimization finished in {res.exec_time:.2f} seconds")
         if not os.path.exists(output_dir):
