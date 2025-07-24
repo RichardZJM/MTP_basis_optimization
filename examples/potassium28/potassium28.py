@@ -24,7 +24,7 @@ if __name__ == "__main__":
         counts_file=COUNTS_FILE,
         neigh_count=24,
         output_dir=OUTPUT_DIR,
-        end_condition=("time", "00:00:30"),
+        end_condition=("time", "00:00:10"),
         pop_size=96,
         show_plot=True,
     )

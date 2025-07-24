@@ -1,51 +1,35 @@
-# mtpoptimizer/sse.py
 import numpy as np
-
-try:
-    import cupy as cp
-
-    CUPY_AVAILABLE = True
-except ImportError:
-    CUPY_AVAILABLE = False
 
 
 class SSECalculator:
     """
-    Calculates the Sum of Squared Errors (SSE) for a given feature mask.
-    cpu (numpy) or gpu (cupy)
+    Calculates the Sum of Squared Errors (SSE) for a given feature mask
+    using NumPy (CPU).
     """
 
-    def __init__(self, bases, energies, counts, device="cpu"):
+    def __init__(self, bases, energies, counts):
         """
-        Initializes the SSECalculator.
+        Initializes the SSECalculator. All calculations are pre-staged
+        using NumPy.
 
         Args:
             bases (np.ndarray): The basis matrix (X).
             energies (np.ndarray): The energy vector (y).
             counts (np.ndarray): The counts/weights vector (W).
-            device (str): The compute device, 'cpu' or 'gpu'.
         """
-        self.device = device
 
-        xp = np
-        if self.device == "gpu":
-            if CUPY_AVAILABLE:
-                xp = cp
-            else:
-                print("Warning: CuPy not found. Falling back to CPU.")
-                self.device = "cpu"
+        self.bases = np.asarray(bases)
+        self.energies = np.asarray(energies)
+        self.counts = np.asarray(counts)
 
-        self.energies_d = xp.asarray(energies)
-        self.bases_d = xp.asarray(bases)
-        self.counts_d = xp.asarray(counts)
-
-        xtw = self.bases_d.T * self.counts_d
-        self.xtwx_d = xtw @ self.bases_d
-        self.xtwy_d = xtw @ self.energies_d
+        xtw = self.bases.T * self.counts
+        self.xtwx = xtw @ self.bases
+        self.xtwy = xtw @ self.energies
 
     def calculate(self, mask):
         """
-        Calculates SSE for a given feature mask. This method is called in the worker process.
+        Calculates SSE for a given feature mask. This method is called
+        in the worker process.
 
         Args:
             mask (np.ndarray): A boolean array indicating which features to include.
@@ -53,22 +37,18 @@ class SSECalculator:
         Returns:
             float: The calculated Sum of Squared Errors.
         """
-        xp = np
-        if self.device == "gpu" and CUPY_AVAILABLE:
-            xp = cp
-
-        mask_d = xp.asarray(mask)
-        xtwxm = self.xtwx_d[mask_d][:, mask_d]
-        xtwym = self.xtwy_d[mask_d]
+        # Apply the mask to the pre-calculated matrices
+        xtwxm = self.xtwx[mask][:, mask]
+        xtwym = self.xtwy[mask]
 
         try:
-            theta = xp.linalg.solve(xtwxm, xtwym)
-        except xp.linalg.LinAlgError:
-            return float("inf")  # Return infinity for singular matrices
+            theta = np.linalg.solve(xtwxm, xtwym)
+        except np.linalg.LinAlgError:
+            # If the matrix is singular, the system can't be solved.
+            return float("inf")
 
-        residuals = (self.bases_d[:, mask_d] @ theta - self.energies_d) * self.counts_d
-        sse = xp.sum(residuals**2)
+        predicted_energies = self.bases[:, mask] @ theta
+        residuals = (predicted_energies - self.energies) * self.counts
+        sse = np.sum(residuals**2)
 
-        if self.device == "gpu" and CUPY_AVAILABLE:
-            return sse.get()
         return float(sse)
