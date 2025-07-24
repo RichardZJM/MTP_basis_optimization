@@ -23,6 +23,7 @@ if __name__ == "__main__":
         energies_file=ENERGIES_FILE,
         counts_file=COUNTS_FILE,
         neigh_count=24,
+        regularization=8e-6,
         output_dir=OUTPUT_DIR,
         end_condition=("n_gen", 1000),
         pop_size=96,

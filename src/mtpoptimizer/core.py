@@ -65,6 +65,7 @@ class MTPPruningProblem(Problem):
         energies_file,
         counts_file,
         neigh_count,
+        regularization,
     ):
         # All processes initialize the problem to have access to calculators
         mtp_data = parse_mtp_file(mtp_file)
@@ -76,7 +77,14 @@ class MTPPruningProblem(Problem):
         bases = np.genfromtxt(bases_file, delimiter=" ")
         energies = np.genfromtxt(energies_file, delimiter=",")
         counts = np.genfromtxt(counts_file, delimiter=",")
-        self.sse_calculator = SSECalculator(bases, energies, counts)
+
+        try:
+            self.sse_calculator = SSECalculator(bases, energies, counts, regularization)
+        except RuntimeError as e:
+            if RANK == 0:
+                raise e  # Let master raise visibly
+            else:
+                pass  # Worker silently skips or continues
 
         n_var = mtp_data["alpha_scalar_moments"]
 
@@ -130,6 +138,7 @@ def run_optimization(
     energies_file,
     counts_file,
     neigh_count,
+    regularization=0,
     output_dir="outputs",
     end_condition=("n_gen", 1000),
     pop_size=96,
@@ -142,7 +151,7 @@ def run_optimization(
     """
 
     problem = MTPPruningProblem(
-        mtp_file, bases_file, energies_file, counts_file, neigh_count
+        mtp_file, bases_file, energies_file, counts_file, neigh_count, regularization
     )
 
     if IS_MPI and RANK > 0:  # MPI Workers

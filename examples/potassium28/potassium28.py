@@ -23,6 +23,7 @@ if __name__ == "__main__":
         energies_file=ENERGIES_FILE,
         counts_file=COUNTS_FILE,
         neigh_count=24,
+        regularization=3e-5,
         output_dir=OUTPUT_DIR,
         end_condition=("time", "00:00:10"),
         pop_size=96,

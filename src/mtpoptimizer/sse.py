@@ -7,7 +7,7 @@ class SSECalculator:
     using NumPy (CPU).
     """
 
-    def __init__(self, bases, energies, counts):
+    def __init__(self, bases, energies, counts, regularization):
         """
         Initializes the SSECalculator. All calculations are pre-staged
         using NumPy.
@@ -23,8 +23,15 @@ class SSECalculator:
         self.counts = np.asarray(counts)
 
         xtw = self.bases.T * self.counts
-        self.xtwx = xtw @ self.bases
+        self.xtwx = xtw @ self.bases + regularization * np.eye(len(self.bases[0]))
         self.xtwy = xtw @ self.energies
+
+        cond = np.linalg.cond(self.xtwx)
+
+        if cond > 1e9:
+            raise ValueError(
+                f"Basis functions are ill-conditioned: {cond:.3e} > 1e9 . Please consider more regularization."
+            )
 
     def calculate(self, mask):
         """
