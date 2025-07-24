@@ -18,7 +18,7 @@ classifiers = [
 ]
 dependencies = [
     "numpy",
-    "pymoo>=0.6.0",
+    "pymoo",
     "regex"
 ]
 
