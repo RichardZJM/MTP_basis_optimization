@@ -24,7 +24,7 @@ if __name__ == "__main__":
         counts_file=COUNTS_FILE,
         neigh_count=24,
         output_dir=OUTPUT_DIR,
-        n_generations=100,
+        end_condition=("n_gen", 1000),
         pop_size=96,
         show_plot=True,
     )

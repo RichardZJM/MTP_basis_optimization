@@ -38,13 +38,13 @@ if IS_MPI:
     def mpi_worker_routine(problem_args):
         """The main loop for a worker process. It waits for and executes tasks."""
         problem = MTPPruningProblem(**problem_args)
-        print(f"Worker (rank {RANK}) initialized and ready.")
+        # print(f"Worker (rank {RANK}) initialized and ready.")
 
         status = MPI.Status()
         while True:
             task_data = COMM.recv(source=0, tag=MPI.ANY_TAG, status=status)
             if status.Get_tag() == TAG_SHUTDOWN:
-                print(f"Worker (rank {RANK}) received shutdown signal. Exiting.")
+                # print(f"Worker (rank {RANK}) received shutdown signal. Exiting.")
                 break
 
             task_index, x_i = task_data
@@ -172,9 +172,9 @@ def run_optimization(
     counts_file,
     neigh_count,
     output_dir="outputs",
-    n_generations=1000,
+    end_condition=("n_gen", 1000),
     pop_size=96,
-    seed=42,
+    seed=None,
     show_plot=True,
     verbose=True,
 ):
@@ -213,10 +213,8 @@ def run_optimization(
         mutation=BitflipMutation(),
     )
 
-    print(f"Starting optimization for {n_generations} generations...")
-    res = minimize(
-        problem, algorithm, ("n_gen", n_generations), seed=seed, verbose=verbose
-    )
+    # print(f"Starting optimization for {n_generations} generations...")
+    res = minimize(problem, algorithm, end_condition, seed=seed, verbose=verbose)
 
     # --- Post-processing and saving (only on master/serial) ---
     if RANK == 0:
