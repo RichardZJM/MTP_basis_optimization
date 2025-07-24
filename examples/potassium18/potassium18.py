@@ -1,5 +1,4 @@
 import os
-import multiprocessing
 from mtpoptimizer import (
     run_optimization,
     assemble_new_tree,
@@ -18,12 +17,6 @@ OUTPUT_DIR = "optimization_results"
 
 if __name__ == "__main__":
 
-    try:
-        multiprocessing.set_start_method("spawn", force=True)
-        print("Multiprocessing start method set to 'spawn'.")
-    except RuntimeError:
-        pass
-
     result = run_optimization(
         mtp_file=MTP_FILE,
         bases_file=BASES_FILE,
@@ -31,10 +24,8 @@ if __name__ == "__main__":
         counts_file=COUNTS_FILE,
         neigh_count=24,
         output_dir=OUTPUT_DIR,
-        device="cpu",
         n_generations=100,
         pop_size=96,
-        n_processes=12,
         show_plot=True,
     )
 
@@ -48,7 +39,7 @@ if __name__ == "__main__":
         best_sse_idx = pareto_front[:, 1].argmin()
         best_sse_mask = pareto_pop[best_sse_idx].astype(bool)
 
-        print(f"Lowest SSE found: {pareto_front[best_sse_idx][1]:.4f}")
+        print(f"Lowest SSE found: {pareto_front[best_sse_idx][1]:.6f}")
         print(f"Corresponding cost: {pareto_front[best_sse_idx][0]}")
 
         original_mtp = parse_mtp_file(MTP_FILE)

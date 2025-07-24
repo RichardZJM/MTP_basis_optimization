@@ -19,7 +19,8 @@ classifiers = [
 dependencies = [
     "numpy",
     "pymoo",
-    "regex"
+    "regex",
+    "mpi4py",
 ]
 
 [project.optional-dependencies]
