@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "mtpoptimizer"
 version = "0.1.0"
 authors = [
-  { name="Zijian Meng", email="richardzjm@gmail.com" },
+  { name="Zijian Meng", email="contact@richardzjm.com" },
 ]
 description = "A package for accuracy-cost optimization of MTP potentials."
 readme = "README.md"
@@ -17,12 +17,12 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
+    "numba"
     "numpy",
     "pymoo",
     "regex",
-    "mpi4py",
 ]
 
 [project.optional-dependencies]
-gpu = ["cupy"]
+mpi = [""mpi4py","]
 
