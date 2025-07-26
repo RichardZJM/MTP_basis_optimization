@@ -2,7 +2,7 @@ import numpy as np
 import numba
 
 
-@numba.njit
+@numba.njit(cache=True)
 def _calculate_jitted(
     mask,
     nbasic_orig,
