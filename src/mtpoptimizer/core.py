@@ -145,6 +145,7 @@ def run_optimization(
     seed=None,
     show_plot=True,
     verbose=True,
+    init_pop=None
 ):
     """
     Runs MTP optimization.
@@ -168,10 +169,17 @@ def run_optimization(
             )  # Register the shutdown hook as a safety net
         else:
             print("Mode: Serial")
-
+    
+    sampling = BinaryRandomSampling()
+    
+    if not init_pop is None:
+        print(f"Using inital population of size {init_pop.shape[0]}!")
+        sampling = init_pop.astype(bool)
+        
+        
     algorithm = NSGA2(
         pop_size=pop_size,
-        sampling=BinaryRandomSampling(),
+        sampling=sampling,
         crossover=UniformCrossover(),
         mutation=BitflipMutation(),
     )
