@@ -24,8 +24,7 @@ def _calculate_jitted(
     max_ranks = root_ranks.copy()
     max_mus = root_mus.copy()
     local_nchildren = nchildren.copy()
-    
-    
+
     # Use a fixed-size NumPy array as a queue
     to_remove = np.empty(num_moments, dtype=np.int32)
     head = 0
@@ -48,20 +47,20 @@ def _calculate_jitted(
             continue
 
         # Check for parents
-        is_basic = (parents_idx[i] == parents_idx[i + 1])
+        is_basic = parents_idx[i] == parents_idx[i + 1]
         if is_basic:
             nbasic -= 1
             ele = basic_indices[i]
-            max_ranks[max(ele[1], ele[2],ele[3])] -= 1
+            max_ranks[max(ele[1], ele[2], ele[3])] -= 1
             max_mus[ele[0]] -= 1
             continue
 
         # Loop over parents
         start = parents_idx[i]
-        end = parents_idx[i+1]
+        end = parents_idx[i + 1]
         for j in range(start, end):
             parent1, parent2 = parents_data[j]
-            
+
             ntimes -= 1
             local_nchildren[parent1] -= 1
             if local_nchildren[parent1] == 0:
@@ -72,16 +71,16 @@ def _calculate_jitted(
             if local_nchildren[parent2] == 0:
                 to_remove[tail] = parent2
                 tail += 1
-    
+
     # ===== Cost Heurstic =====
     max_rank_val = np.count_nonzero(max_ranks)
     radial_func_count_val = np.count_nonzero(max_mus)
-    
+
     precompute = 4 * max_rank_val
     radial_vals = 4 * radial_func_count_val * radial_basis_size
     basics = 39 * nbasic
     times = 9 * ntimes
-    
+
     return neigh_count * (24 + precompute + radial_vals + basics) + times
 
 
@@ -89,6 +88,7 @@ class MTPCostCalculator:
     """
     Calculates a computational cost heuristic for a pruned MTP tree.
     """
+
     def __init__(self, mtp_data: dict, neigh_count: int, radial_basis_size: int):
         self.neigh_count = neigh_count
         self.radial_basis_size = radial_basis_size
@@ -114,7 +114,7 @@ class MTPCostCalculator:
         self.root_ranks = root_ranks[root_ranks != 0]
 
         self.nchildren = np.zeros(self.num_moments, dtype=np.int32)
-        
+
         # Build parent lists
         py_parents = [[] for _ in range(self.num_moments)]
         for i, ele in enumerate(self.times_indices):
@@ -126,7 +126,7 @@ class MTPCostCalculator:
         # Convert it to a flattened ragged array for compilation support.
         self.parents_idx = np.zeros(self.num_moments + 1, dtype=np.int32)
         flat_parents_list = []
-        for i in range(self.num_moments): # Prefix sum
+        for i in range(self.num_moments):  # Prefix sum
             self.parents_idx[i] = len(flat_parents_list)
             flat_parents_list.extend(py_parents[i])
         self.parents_idx[self.num_moments] = len(flat_parents_list)
