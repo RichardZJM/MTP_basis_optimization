@@ -61,9 +61,9 @@ class MTPPruningProblem(Problem):
     def __init__(
         self,
         mtp_file,
-        bases_file,
-        energies_file,
-        counts_file,
+        bases,
+        energies,
+        counts,
         neigh_count,
         regularization,
     ):
@@ -73,10 +73,6 @@ class MTPPruningProblem(Problem):
         self.cost_calculator = MTPCostCalculator(
             mtp_data, neigh_count, radial_basis_size
         )
-
-        bases = np.genfromtxt(bases_file, delimiter=" ")
-        energies = np.genfromtxt(energies_file, delimiter=",")
-        counts = np.genfromtxt(counts_file, delimiter=",")
 
         try:
             self.sse_calculator = SSECalculator(bases, energies, counts, regularization)
@@ -134,9 +130,9 @@ class MTPPruningProblem(Problem):
 
 def run_optimization(
     mtp_file,
-    bases_file,
-    energies_file,
-    counts_file,
+    bases,
+    energies,
+    counts,
     neigh_count,
     regularization=0,
     output_dir="outputs",
@@ -145,14 +141,14 @@ def run_optimization(
     seed=None,
     show_plot=True,
     verbose=True,
-    init_pop=None
+    init_pop=None,
 ):
     """
     Runs MTP optimization.
     """
 
     problem = MTPPruningProblem(
-        mtp_file, bases_file, energies_file, counts_file, neigh_count, regularization
+        mtp_file, bases, energies, counts, neigh_count, regularization
     )
 
     if IS_MPI and RANK > 0:  # MPI Workers
@@ -169,14 +165,40 @@ def run_optimization(
             )  # Register the shutdown hook as a safety net
         else:
             print("Mode: Serial")
-    
-    sampling = BinaryRandomSampling()
-    
+
     if not init_pop is None:
         print(f"Using inital population of size {init_pop.shape[0]}!")
         sampling = init_pop.astype(bool)
-        
-        
+
+    else:
+        print("Using seeded inital population.")
+        near_extrema_prob = 0.01
+        near_extrema_count = int(pop_size / 50)
+        sampling = np.random.permutation(
+            np.concatenate(
+                (
+                    np.zeros((1, problem.n_var)),  # One cost minima
+                    np.random.choice(
+                        [0, 1],
+                        size=(near_extrema_count, problem.n_var),
+                        p=[1 - near_extrema_prob, near_extrema_prob],
+                    ),  # 5 cost near minima
+                    np.ones((1, problem.n_var)),  # One cost maxima
+                    np.random.choice(
+                        [0, 1],
+                        size=(near_extrema_count, problem.n_var),
+                        p=[near_extrema_prob, 1 - near_extrema_prob],
+                    ),  # 5 cost near maxima
+                    np.random.randint(
+                        0,
+                        2,
+                        size=(pop_size - 2 * (1 + near_extrema_count), problem.n_var),
+                    ),  # Rest is random
+                ),
+                axis=0,
+            )
+        ).astype(bool)
+
     algorithm = NSGA2(
         pop_size=pop_size,
         sampling=sampling,
