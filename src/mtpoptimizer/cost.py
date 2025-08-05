@@ -17,6 +17,7 @@ def _calculate_jitted(
     parents_idx,
     neigh_count,
     radial_basis_size,
+    base_cost,
 ):
 
     nbasic = nbasic_orig
@@ -81,7 +82,7 @@ def _calculate_jitted(
     basics = 39 * nbasic
     times = 9 * ntimes
 
-    return neigh_count * (24 + precompute + radial_vals + basics) + times
+    return (neigh_count * (24 + precompute + radial_vals + basics) + times) / base_cost
 
 
 class MTPCostCalculator:
@@ -101,6 +102,9 @@ class MTPCostCalculator:
         self.ntimes_orig = mtp_data["alpha_index_times_count"]
 
         self._prepare_graph()
+
+        self.base_cost = 1
+        self.base_cost = self.calculate(np.ones_like(self.scalar_indices).astype(bool))
 
     def _prepare_graph(self):
         """Pre-computes graph properties in a Numba-friendly format."""
@@ -151,4 +155,5 @@ class MTPCostCalculator:
             self.parents_idx,
             self.neigh_count,
             self.radial_basis_size,
+            self.base_cost,
         )

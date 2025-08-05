@@ -1,13 +1,17 @@
 import numpy as np
+import warnings
+
+
+# import scipy as sp
 
 
 class SSECalculator:
     """
     Calculates the Sum of Squared Errors (SSE) for a given feature mask
-    using NumPy (CPU).
+    using NumPy.
     """
 
-    def __init__(self, bases, energies, counts, regularization):
+    def __init__(self, xtwx, xtwy, yty, regularization, rank=0):
         """
         Initializes the SSECalculator. All calculations are pre-staged
         using NumPy.
@@ -18,19 +22,21 @@ class SSECalculator:
             counts (np.ndarray): The counts/weights vector (W).
         """
 
-        self.bases = np.asarray(bases)
-        self.energies = np.asarray(energies)
-        self.counts = np.asarray(counts)
+        self.xtwx = np.asarray(xtwx)
+        self.xtwy = np.asarray(xtwy)
+        self.yty = yty
 
-        xtw = self.bases.T * self.counts
-        self.xtwx = xtw @ self.bases + regularization * np.eye(len(self.bases[0]))
-        self.xtwy = xtw @ self.energies
+        # Apply Tikihonov regularization
+        self.xtwx = self.xtwx + regularization * np.eye(len(self.xtwy))
+
+        self.base_sse = 1
+        self.base_sse = self.calculate(np.ones_like(self.xtwy).astype(bool))
 
         cond = np.linalg.cond(self.xtwx)
 
-        if cond > 1e9:
-            raise ValueError(
-                f"Basis functions are ill-conditioned: {cond:.3e} > 1e9 . Please consider more regularization."
+        if cond > 1e10 and rank == 0:
+            warnings.warn(
+                f"Matrix is ill-conditioned: {cond:.2e} > 1e10 . Please consider more regularization."
             )
 
     def calculate(self, mask):
@@ -50,12 +56,13 @@ class SSECalculator:
 
         try:
             theta = np.linalg.solve(xtwxm, xtwym)
+            # theta = sp.linalg.solve(xtwxm, xtwym, assume_a="pos")
+            # L = np.linalg.cholesky(xtwxm)
+
+            # y = np.linalg.solve(L, xtwym)
+            # theta = np.linalg.solve(L.T, y)
         except np.linalg.LinAlgError:
             # If the matrix is singular, the system can't be solved.
             return float("inf")
 
-        predicted_energies = self.bases[:, mask] @ theta
-        residuals = (predicted_energies - self.energies) * self.counts
-        sse = np.sum(residuals**2)
-
-        return float(sse)
+        return (self.yty - theta @ xtwym) / self.base_sse

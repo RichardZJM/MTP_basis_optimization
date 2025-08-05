@@ -4,6 +4,9 @@ import time
 
 from pymoo.core.problem import Problem
 from pymoo.algorithms.moo.nsga2 import NSGA2
+from pymoo.algorithms.moo.moead import MOEAD
+from pymoo.algorithms.moo.moead import ParallelMOEAD
+from pymoo.util.ref_dirs import get_reference_directions
 from pymoo.optimize import minimize
 from pymoo.visualization.scatter import Scatter
 from pymoo.operators.crossover.ux import UniformCrossover
@@ -34,24 +37,26 @@ if IS_MPI:
         The main loop for a worker process.
         """
         while True:
-            continue_eval = COMM.bcast(None, root=0)
+            COMM.Scatter(None, problem.work_buffer, root=0)
 
-            if not continue_eval:
+            tasks = np.sum(problem.work_buffer[:, 0])
+
+            if tasks == 0:
                 COMM.gather(problem.eval_time, root=0)
                 break
 
-            x_chunk = COMM.scatter(None, root=0)
-            results_chunk = problem.evaluate_chunk(x_chunk)
-            COMM.gather(results_chunk, root=0)
+            results_chunk = problem.evaluate_chunk(problem.work_buffer)
+            COMM.Gather(results_chunk, None, root=0)
 
-    def shutdown_workers(eval_time):
+    def shutdown_workers(problem):
         """
         Master's signal to send a shutdown.
         """
         if RANK == 0:
             print("Master (rank 0) is shutting down workers...")
-            COMM.bcast(False, root=0)
-            gatheredTimes = COMM.gather(eval_time, root=0)
+            end_signal = np.zeros_like(problem.send_buffer).astype(bool)
+            COMM.Scatter(end_signal, problem.work_buffer, root=0)
+            gatheredTimes = COMM.gather(problem.eval_time, root=0)
             return gatheredTimes
 
 
@@ -61,52 +66,57 @@ class MTPPruningProblem(Problem):
     """
 
     def __init__(
-        self,
-        mtp_file,
-        bases,
-        energies,
-        counts,
-        neigh_count,
-        regularization,
+        self, mtp_file, xtwx, xtwy, yty, neigh_count, regularization, pop_size
     ):
         # All processes initialize the problem to have access to calculators
         mtp_data = parse_mtp_file(mtp_file)
+        self.n_species = mtp_data["species_count"]
         radial_basis_size = mtp_data["radial_basis_size"]
+        n_var = mtp_data["alpha_scalar_moments"]
         self.cost_calculator = MTPCostCalculator(
             mtp_data, neigh_count, radial_basis_size
         )
+        self.sse_calculator = SSECalculator(xtwx, xtwy, yty, regularization, rank=RANK)
+
         self.eval_time = 0
         self.MPI_time = 0
         self.gather_time = 0  # Includes idle time waiting to gather
 
-        try:
-            self.sse_calculator = SSECalculator(bases, energies, counts, regularization)
-        except RuntimeError as e:
-            if RANK == 0:
-                raise e  # Let master raise visibly
-            else:
-                pass  # Worker silently skips or continues
-
-        n_var = mtp_data["alpha_scalar_moments"]
+        work_size = (pop_size + SIZE - 1) // SIZE
+        self.work_buffer = np.ascontiguousarray(
+            np.zeros((work_size, n_var + 1)).astype(bool)
+        )  # +1 for whether to process this row
 
         if RANK == 0:
-            mask = np.ones(n_var, dtype=bool)
-            print(
-                f"Base SSE: {self.sse_calculator.calculate(np.append(mask,True)):.6f}"
-            )
-            print(f"Base cost: {self.cost_calculator.calculate(mask)}")
+            if IS_MPI:
+                # Preconstruct the send buffer with
+                pad_width = work_size * SIZE
+                self.send_buffer = np.ascontiguousarray(
+                    np.zeros((pad_width, n_var + 1)).astype(bool)
+                )
+                self.send_buffer[:pop_size, 0] = True  # Set the flags to process
+
+                self.res_buffer = np.ascontiguousarray(
+                    np.zeros((pad_width, 2)).astype(np.float64)
+                )
 
         super().__init__(n_var=n_var, n_obj=2, xl=0, xu=1, type_var=bool)
 
-    def evaluate_chunk(self, X_chunk):
+    def evaluate_chunk(self, x_chunk):
         """
         Evaluates a chunk of individuals.
         """
         start_time = time.perf_counter()
         results = []
-        for x_i in X_chunk:
-            full_mask = np.append(x_i, True)
-            cost = self.cost_calculator.calculate(x_i)
+        for x_i in x_chunk:
+            # Check the flag
+            if x_i[0] == False:
+                results.append([np.nan, np.nan])
+                continue
+
+            # Append the species coeffs for SSE
+            full_mask = np.append(np.full((self.n_species), True, dtype=bool), x_i[1:])
+            cost = self.cost_calculator.calculate(x_i[1:])
             sse = self.sse_calculator.calculate(full_mask)
             results.append([cost, sse])
         self.eval_time += time.perf_counter() - start_time
@@ -119,38 +129,38 @@ class MTPPruningProblem(Problem):
         In MPI mode, serves as a wrapper.
         """
         if IS_MPI:  # Only run by master.
-            MPI_start_time = MPI.Wtime()
-            COMM.bcast(True, root=0)  # Send signal to start workers
-            self.MPI_time += MPI.Wtime() - MPI_start_time
 
-            # Ensure contigious for MPI call
-            sendbuf = np.ascontiguousarray(X, dtype=bool)
-            chunks = np.array_split(sendbuf, SIZE)
+            self.send_buffer[0 : len(X), 1:] = X
 
             MPI_start_time = MPI.Wtime()
-            x_chunk = COMM.scatter(chunks, root=0)
+            COMM.Scatter(self.send_buffer, self.work_buffer, root=0)
             self.MPI_time += MPI.Wtime() - MPI_start_time
 
+            # Estimate the wall time taken with the difference of root
             MPI_start_time = MPI.Wtime()
             start_time = time.perf_counter()
-            results_chunk = self.evaluate_chunk(x_chunk)
+            results_chunk = self.evaluate_chunk(self.work_buffer)
             root_time_taken = time.perf_counter() - start_time
-            gathered_results = COMM.gather(results_chunk, root=0)
+            COMM.Gather(results_chunk, self.res_buffer, root=0)
             self.gather_time += MPI.Wtime() - MPI_start_time - root_time_taken
 
-            out["F"] = np.vstack(gathered_results) if gathered_results else np.array([])
+            out["F"] = self.res_buffer[: len(X)]
 
         else:  # Serial execution
-            start_time = time.perf_counter()
-            out["F"] = self.evaluate_chunk(X)
-            self.eval_time += time.perf_counter() - start_time
+            # Set up the flags and chunks
+            work_chunk = np.zeros((len(X), self.n_var + 1), dtype=bool)
+            work_chunk[:, 0] = True
+            work_chunk[:, 1:] = X
+
+            results = self.evaluate_chunk(work_chunk)
+            out["F"] = results
 
 
 def run_optimization(
     mtp_file,
-    bases,
-    energies,
-    counts,
+    xtwx,
+    xtwy,
+    yty,
     neigh_count,
     regularization=0,
     output_dir="outputs",
@@ -160,13 +170,16 @@ def run_optimization(
     show_plot=True,
     verbose=True,
     init_pop=None,
+    algorithim="nsga",
+    mutation_rate=0.01,
 ):
     """
-    Runs MTP optimization.
+    Runs MTP optimization. Algos: moead, nsga (Default).
     """
+    np.random.seed(seed)
 
     problem = MTPPruningProblem(
-        mtp_file, bases, energies, counts, neigh_count, regularization
+        mtp_file, xtwx, xtwy, yty, neigh_count, regularization, pop_size
     )
 
     if IS_MPI and RANK > 0:  # MPI Workers
@@ -182,11 +195,11 @@ def run_optimization(
             print("Mode: Serial")
 
     if not init_pop is None:
-        print(f"Using inital population of size {init_pop.shape[0]}!")
+        print(f"Using initial population of size {init_pop.shape[0]}!")
         sampling = init_pop.astype(bool)
 
     else:
-        print("Using seeded inital population.")
+        print("Using seeded initial population.")
         near_extrema_prob = 0.01
         near_extrema_count = int(pop_size / 50)
         sampling = np.random.permutation(
@@ -214,25 +227,35 @@ def run_optimization(
             )
         ).astype(bool)
 
-    algorithm = NSGA2(
-        pop_size=pop_size,
-        sampling=sampling,
-        crossover=UniformCrossover(),
-        mutation=BitflipMutation(),
-    )
+    if algorithim == "moead":
+        ref_dirs = get_reference_directions("energy", 2, pop_size)
+        solver = ParallelMOEAD(
+            ref_dirs=ref_dirs,
+            sampling=sampling,
+            crossover=UniformCrossover(),
+            mutation=BitflipMutation(prob_var=mutation_rate),
+        )
+    else:
+        solver = NSGA2(
+            pop_size=pop_size,
+            sampling=sampling,
+            crossover=UniformCrossover(),
+            mutation=BitflipMutation(prob_var=mutation_rate),
+        )
 
-    res = minimize(problem, algorithm, end_condition, seed=seed, verbose=verbose)
+    res = minimize(problem, solver, end_condition, seed=seed, verbose=verbose)
+
+    # --- Post-processing and saving ---
+    print(f"Optimization finished in {res.exec_time:.2f} seconds.")
 
     if IS_MPI:
-        evals = shutdown_workers(problem.eval_time)
-    communication_time = (
-        problem.MPI_time + problem.gather_time - (max(evals) - evals[0])
-    )
-    print(problem.MPI_time)
-    print(f"Evaluation times per process: [{', '.join(f'{x:.2f} s' for x in evals)}]")
-    # --- Post-processing and saving ---
-    if RANK == 0:
-        print(f"Optimization finished in {res.exec_time:.2f} seconds.")
+        evals = shutdown_workers(problem)
+        communication_time = (
+            problem.MPI_time + problem.gather_time - (max(evals) - evals[0])
+        )
+        print(
+            f"Evaluation times per process: [{', '.join(f'{x:.2f} s' for x in evals)}]"
+        )
         print(
             f"Average fitness evaluation time: {(np.mean(evals))/res.exec_time*100:.2f}%."
         )
@@ -243,28 +266,28 @@ def run_optimization(
             f"Serial time (Estimated): {(res.exec_time-max(evals)-communication_time)/res.exec_time*100:.2f}%."
         )
         print(
-            f"Wasted time due to load imbalance: {(max(evals) - min(evals))/res.exec_time*100:.2f}%."
+            f"Wasted time due to load imbalance (Estimated): {(max(evals) - min(evals))/res.exec_time*100:.2f}%."
         )
 
-        if not os.path.exists(output_dir):
-            os.makedirs(output_dir)
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
 
-        sorted_indices = np.argsort(res.F[:, 0])
-        sorted_F = res.F[sorted_indices]
-        sorted_X = res.X[sorted_indices]
+    sorted_indices = np.argsort(res.F[:, 0])
+    sorted_F = res.F[sorted_indices]
+    sorted_X = res.X[sorted_indices]
 
-        pop_path = os.path.join(output_dir, "pareto_population.csv")
-        obj_path = os.path.join(output_dir, "pareto_objectives.csv")
+    pop_path = os.path.join(output_dir, "pareto_population.csv")
+    obj_path = os.path.join(output_dir, "pareto_objectives.csv")
 
-        np.savetxt(pop_path, sorted_X.astype(int), delimiter=",", fmt="%d")
-        np.savetxt(obj_path, sorted_F, delimiter=",")
-        print(f"Saved results to {output_dir}")
+    np.savetxt(pop_path, sorted_X.astype(int), delimiter=",", fmt="%d")
+    np.savetxt(obj_path, sorted_F, delimiter=",")
+    print(f"Saved results to {output_dir}")
 
-        if show_plot and not IS_MPI:
-            plot = Scatter(
-                title="Pareto Front", labels=["Cost Heuristic", "Sum of Squared Error"]
-            )
-            plot.add(res.F, facecolor="none", edgecolor="red", s=40)
-            plot.show()
+    if show_plot:
+        plot = Scatter(
+            title="Pareto Front", labels=["Cost Heuristic", "Sum of Squared Error"]
+        )
+        plot.add(res.F, facecolor="none", edgecolor="red", s=40)
+        plot.show()
 
     return res

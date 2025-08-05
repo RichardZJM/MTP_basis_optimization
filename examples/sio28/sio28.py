@@ -1,4 +1,13 @@
 import os
+
+# Disable the numpy thread parallelisim (we use MPI instead)
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
+
+
 import numpy as np
 from mtpoptimizer import (
     run_optimization,
@@ -10,38 +19,30 @@ from mtpoptimizer import (
 # --- Configuration ---
 DATA_DIR = "data"
 MTP_FILE = os.path.join(DATA_DIR, "28.almtp")
-BASES_FILE = os.path.join(DATA_DIR, "bases.bin")
-ENERGIES_FILE = os.path.join(DATA_DIR, "energies.bin")
-COUNTS_FILE = os.path.join(DATA_DIR, "counts.bin")
+XTWX_FILE = os.path.join(DATA_DIR, "xtwx.bin")
+XTWY_FILE = os.path.join(DATA_DIR, "xtwy.bin")
 
 OUTPUT_DIR = "optimization_results"
 
 if __name__ == "__main__":
-    parameter_count = (
-        2445  # 2445 linear parameters for level 28 (Cant be found from MTP file)
-    )
 
-    bases = np.fromfile(BASES_FILE, dtype=np.float64)
-    bases = bases.reshape((int(bases.shape[0] / parameter_count), parameter_count))
-    mean = bases.mean(axis=0)
-    std_dev = bases.std(axis=0)
-    bases = (bases - mean) / std_dev
-    bases = np.concatenate((bases, np.ones((bases.shape[0], 1))), axis=1)
-
-    energies = np.fromfile(ENERGIES_FILE, dtype=np.float64)
-    counts = np.fromfile(COUNTS_FILE, dtype=np.int32)
+    xtwx = np.fromfile(XTWX_FILE, dtype=np.float64)
+    xtwy = np.fromfile(XTWY_FILE, dtype=np.float64)
+    xtwx = np.reshape(xtwx, (len(xtwy), len(xtwy)))
 
     result = run_optimization(
         mtp_file=MTP_FILE,
-        bases=bases,
-        energies=energies,
-        counts=counts,
+        xtwx=xtwx,
+        xtwy=xtwy,
+        yty=6483714564.848065376281738,
         neigh_count=24,
-        regularization=2e-2,
+        regularization=0,
         output_dir=OUTPUT_DIR,
-        end_condition=("n_gen", 5),
-        pop_size=12 * 24,
+        end_condition=("n_gen", 3),
+        pop_size=96,
         show_plot=True,
+        seed=None,
+        algorithim="nsga",
     )
 
     if result:
