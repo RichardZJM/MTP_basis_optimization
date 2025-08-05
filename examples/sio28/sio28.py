@@ -35,14 +35,14 @@ if __name__ == "__main__":
         xtwx=xtwx,
         xtwy=xtwy,
         yty=6483714564.848065376281738,
-        neigh_count=24,
+        neigh_count=46.017803,
         regularization=0,
         output_dir=OUTPUT_DIR,
         end_condition=("n_gen", 3),
         pop_size=96,
         show_plot=True,
         seed=None,
-        algorithim="nsga",
+        algorithim="moead",
     )
 
     if result:
@@ -55,8 +55,8 @@ if __name__ == "__main__":
         best_sse_idx = pareto_front[:, 1].argmin()
         best_sse_mask = pareto_pop[best_sse_idx].astype(bool)
 
-        print(f"Lowest SSE found: {pareto_front[best_sse_idx][1]:.6f}")
-        print(f"Corresponding cost: {pareto_front[best_sse_idx][0]}")
+        print(f"Lowest SSE found: {pareto_front[best_sse_idx][1]:.4f}")
+        print(f"Corresponding cost: {pareto_front[best_sse_idx][0]:.4f}")
 
         original_mtp = parse_mtp_file(MTP_FILE)
         new_mtp_dict = assemble_new_tree(original_mtp, best_sse_mask)
