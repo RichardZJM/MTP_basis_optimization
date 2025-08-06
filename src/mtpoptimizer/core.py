@@ -171,7 +171,7 @@ def run_optimization(
     verbose=True,
     init_pop=None,
     algorithim="nsga",
-    mutation_rate=0.01,
+    mutation_rate=None,
 ):
     """
     Runs MTP optimization. Algos: moead, nsga (Default).
@@ -241,6 +241,7 @@ def run_optimization(
             sampling=sampling,
             crossover=UniformCrossover(),
             mutation=BitflipMutation(prob_var=mutation_rate),
+            eliminate_duplicates=True,
         )
 
     res = minimize(problem, solver, end_condition, seed=seed, verbose=verbose)

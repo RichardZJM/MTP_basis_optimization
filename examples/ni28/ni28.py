@@ -36,13 +36,13 @@ if __name__ == "__main__":
         xtwy=xtwy,
         yty=1308558.94848743616603,
         neigh_count=20.528098,
-        regularization=1e-5,
+        regularization=1e-4,
         output_dir=OUTPUT_DIR,
-        end_condition=("time", 300),
+        end_condition=("time", 30),
         pop_size=96,
         show_plot=True,
         seed=None,
-        algorithim="nsga",
+        algorithim="moead",
     )
 
     if result:

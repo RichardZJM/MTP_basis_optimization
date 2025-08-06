@@ -36,7 +36,7 @@ if __name__ == "__main__":
         xtwy=xtwy,
         yty=6483714564.848065376281738,
         neigh_count=46.017803,
-        regularization=0,
+        regularization=1e-8,
         output_dir=OUTPUT_DIR,
         end_condition=("n_gen", 3),
         pop_size=96,
