@@ -11,7 +11,7 @@ class SSECalculator:
     using NumPy.
     """
 
-    def __init__(self, xtwx, xtwy, yty, regularization, rank=0):
+    def __init__(self, xtwx, xtwy, yty, regularization=0.0, rank=0):
         """
         Initializes the SSECalculator. All calculations are pre-staged
         using NumPy.
@@ -39,7 +39,7 @@ class SSECalculator:
                 f"Matrix is ill-conditioned: {cond:.2e} > 1e10 . Please consider more regularization."
             )
 
-    def calculate(self, mask):
+    def calculate(self, mask, get_theta=False):
         """
         Calculates SSE for a given feature mask. This method is called
         in the worker process.
@@ -65,4 +65,6 @@ class SSECalculator:
             # If the matrix is singular, the system can't be solved.
             return float("inf")
 
+        if get_theta:
+            return (theta, (self.yty - theta @ xtwym) / self.base_sse)
         return (self.yty - theta @ xtwym) / self.base_sse
