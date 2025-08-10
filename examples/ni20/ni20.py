@@ -39,7 +39,7 @@ if __name__ == "__main__":
         regularization=1e-4,
         output_dir=OUTPUT_DIR,
         end_condition=("time", 10),
-        pop_size=512,
+        pop_size=5120,
         show_plot=True,
         seed=None,
         algorithim="moead",
