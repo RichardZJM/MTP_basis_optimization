@@ -38,7 +38,7 @@ if __name__ == "__main__":
         neigh_count=46.017803,
         regularization=1e-8,
         output_dir=OUTPUT_DIR,
-        end_condition=("n_gen", 3),
+        end_condition=("n_gen", 1),
         pop_size=96,
         show_plot=True,
         seed=None,

@@ -32,6 +32,9 @@ class SSECalculator:
         self.base_sse = 1
         self.base_sse = self.calculate(np.ones_like(self.xtwy).astype(bool))
 
+        if rank == 0:
+            print(f"The base SSE is {self.base_sse:.2f}.")
+
         cond = np.linalg.cond(self.xtwx)
 
         if cond > 1e10 and rank == 0:
