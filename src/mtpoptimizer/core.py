@@ -200,32 +200,23 @@ def run_optimization(
 
     else:
         print("Using seeded initial population.")
-        near_extrema_prob = 0.01
-        near_extrema_count = int(pop_size / 50)
-        sampling = np.random.permutation(
-            np.concatenate(
-                (
-                    np.zeros((1, problem.n_var)),  # One cost minima
-                    np.random.choice(
-                        [0, 1],
-                        size=(near_extrema_count, problem.n_var),
-                        p=[1 - near_extrema_prob, near_extrema_prob],
-                    ),  # 5 cost near minima
-                    np.ones((1, problem.n_var)),  # One cost maxima
-                    np.random.choice(
-                        [0, 1],
-                        size=(near_extrema_count, problem.n_var),
-                        p=[near_extrema_prob, 1 - near_extrema_prob],
-                    ),  # 5 cost near maxima
-                    np.random.randint(
-                        0,
-                        2,
-                        size=(pop_size - 2 * (1 + near_extrema_count), problem.n_var),
-                    ),  # Rest is random
-                ),
-                axis=0,
-            )
-        ).astype(bool)
+
+        assert pop_size >= 2, "Population size must be at least 2."
+
+        all_zeros = np.zeros((1, problem.n_var), dtype=bool)
+        all_ones = np.ones((1, problem.n_var), dtype=bool)
+
+        remaining_pop_size = pop_size - 2
+        if remaining_pop_size > 0:
+            probs = np.linspace(0, 1, pop_size)[1:-1]
+            pop = np.random.rand(remaining_pop_size, problem.n_var)
+            pop = pop < probs[:, np.newaxis]
+            pop = np.concatenate((all_zeros, all_ones, pop), axis=0)
+            np.savetxt("tmp.txt", pop, delimiter=",", fmt="%d")
+        else:
+            pop = np.concatenate((all_zeros, all_ones), axis=0)
+
+        sampling = np.random.permutation(pop)
 
     if algorithim == "moead":
         ref_dirs = get_reference_directions("energy", 2, pop_size)
