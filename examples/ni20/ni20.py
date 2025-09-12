@@ -19,8 +19,8 @@ from mtpoptimizer import (
 # --- Configuration ---
 DATA_DIR = "data"
 MTP_FILE = os.path.join(DATA_DIR, "20.almtp")
-XTWX_FILE = os.path.join(DATA_DIR, "xtwx.bin")
-XTWY_FILE = os.path.join(DATA_DIR, "xtwy.bin")
+XTWX_FILE = os.path.join(DATA_DIR, "xtwx.bin")  # Get this from the MLIP-3 fork
+XTWY_FILE = os.path.join(DATA_DIR, "xtwy.bin")  # Get this from the MLIP-3 fork
 
 OUTPUT_DIR = "optimization_results"
 
@@ -34,15 +34,15 @@ if __name__ == "__main__":
         mtp_file=MTP_FILE,
         xtwx=xtwx,
         xtwy=xtwy,
-        yty=1308558.94848743616603,
-        neigh_count=20.528098,
+        yty=1308558.94848743616603,  # Get this from the MLIP-3 fork
+        neigh_count=20.528098,  # Get this from the MLIP-3 fork
         regularization=1e-4,
         output_dir=OUTPUT_DIR,
-        end_condition=("time", 10),
-        pop_size=5120,
+        end_condition=("time", 30),
+        pop_size=96,
         show_plot=True,
         seed=None,
-        algorithim="moead",
+        algorithim="nsga",
     )
 
     if result:

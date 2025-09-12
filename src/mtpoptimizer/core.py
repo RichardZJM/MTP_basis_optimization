@@ -212,7 +212,6 @@ def run_optimization(
             pop = np.random.rand(remaining_pop_size, problem.n_var)
             pop = pop < probs[:, np.newaxis]
             pop = np.concatenate((all_zeros, all_ones, pop), axis=0)
-            np.savetxt("tmp.txt", pop, delimiter=",", fmt="%d")
         else:
             pop = np.concatenate((all_zeros, all_ones), axis=0)
 
