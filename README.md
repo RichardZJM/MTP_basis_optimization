@@ -29,10 +29,10 @@
 <br />
 <div align="center">
 
-<h3 align="center">MTP Pruning Optimizer</h3>
+<h3 align="center">MTP Basis Optimization</h3>
 
   <p align="center">
-    A evolutionary algorithim based 
+    Cost-aware pruning of basis functions applied to the MTP
     <br />
     <a href="https://github.com/RichardZJM/MTP_basis_optimization"><strong>GitHub »</strong></a>
     <br />
@@ -45,15 +45,15 @@
 
 ## About The Project
 
-[![Product Name Screen Shot][product-screenshot]](https://example.com)
+The Moment Tensor Potential (MTP) is a popular machine learning interatomic potentials which relies on linear regression of a basis set. This basis set is calculated through a recursive-style approach which means that these basis functions have highly asymmetric costs. Previously, MTPs were defined by level-based scheme which picked which limitations on radial and angular contributions using empirical, training-data-agnostic rules. This library is uses multiobjetive optimization to choose more cost-effective MTPs instead, achieving up to $7\,\times$ speedups over the previous level-based scheme, as shown in the paper. The resultant potential are compatible with the [MLIP-3](https://gitlab.com/ashapeev/mlip-3) package and existing LAMMPS implementations.
 
-Here's a blank template to get started. To avoid retyping too much info, do a search and replace with your text editor for the following: `RichardZJM`, `MTP_basis_optimization`, `twitter_handle`, `linkedin_username`, `email_client`, `email`, `project_title`, `project_description`, `project_license`
+Disclaimer: this repository was refactored, modified, and commented with the help of AI coding tools at multiple points.
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
 ## Getting Started
 
-As this pruning technique is a _post-training_ method you will need to have a trained MTP prepared ahead of time. Since pruned MTP often inherit certain traits of the base potential, you should ensure the base potential is fitted to satisfaction. You can consider using [MLIP-3](https://gitlab.com/ashapeev/mlip-3) to train MTPs with or without active learning.
+As this pruning technique is a _post-training_ method you will need to have a trained MTP prepared ahead of time. Since pruned MTP often inherit certain traits of the base potential, you should ensure the base potential is fitted to satisfaction. You can use [MLIP-3](https://gitlab.com/ashapeev/mlip-3) to train MTPs with or without active learning.
 
 ### Installation
 
@@ -78,15 +78,15 @@ As this pruning technique is a _post-training_ method you will need to have a tr
 
 After you have a base potential prepared, you need to extract the matrix problem for usage in this package. This extraction is performed by my [fork](https://github.com/RichardZJM/mlip3-extract) of the MLIP-3 package.
 
-To begin pruning you will need the four components of the Matrix problem:
+To begin pruning you will need the four components of the matrix problem:
 
 - [ ] The $\mathbf{X}^\intercal\mathbf{WX}$ Matrix (binary file)
 - [ ] The $\mathbf{X}^\intercal\mathbf{WY}$ Vector (binary file)
 - [ ] The $\mathbf{Y}^\intercal\mathbf{Y}$ Value (scalar)
 - [ ] The average number of neighbors (scalar)
 
-These are obtained using the `extract_problem` commands from my fork. These four values can then be inputted into the `run_optimization` command to run the optimization algorithm. You can try examples/ni20 which has the components precalculated for Nickel with a base potential of level 20. The dataset is from [23-Single-Element-DNPs
-](https://github.com/saidigroup/23-Single-Element-DNPs).
+These are obtained using the `extract_problem` commands from my fork. These four values can then be inputted into the `run_optimization` command to run the optimization algorithm. You can try `examples/ni20` which has the matrix problem's components precalculated for Nickel with a base potential of level 20 which can be executed on a single core. The dataset is from [23-Single-Element-DNPs
+](https://github.com/saidigroup/23-Single-Element-DNPs). The examples also include Nickel for a base potential of level 28 (`examples/ni28`)and Silicon-Oxygen for a level of 28 (`examples/sio28`). These were included in the paper but may require high performance computing resources to run.
 
 `run_optimization` takes the following commands. You may see a warning if the more regularization is recommended to ensure numerical stability.
 
@@ -95,16 +95,16 @@ def run_optimization(
     mtp_file, # File path to the base MTP
     xtwx, # File path to the binary XTWX file
     xtwy, # File path to the binary XTWY file
-    yty, # Value of the yTy (float)
-    neigh_count, # Average number of neighbors (Float)
+    yty, # Value of the yTy (fp64)
+    neigh_count, # Average number of neighbors (fp64)
     regularization=0, # Lamba for Tikhonov regularization
     output_dir="outputs", # Directory to write results
     end_condition=("n_gen", 1000), # End conditions n_gen, (int generation count) or time (seconds)
-    pop_size=96, # Population size
-    seed=None, # Seed if specified
+    pop_size=96, # Population size (int)
+    seed=None, # Seed if specified (int)
     show_plot=True, # Show a plot when optimization is complete
     verbose=True, # Show the details of each generation
-    init_pop=None, # Numpy array of inital population (p by n numpy array)
+    init_pop=None, # Numpy array of inital population (p by n numpy array of booleans) Used to continue runs.
     algorithim="nsga", # Which evolutionary algorithim to use (moead or nsga)
     mutation_rate=None, # Mutation rate (float). Single bitfilp if None.
 ):
@@ -118,32 +118,65 @@ mpirun -np 12 python ni20.py
 
 After the evolutionary algorithm is completed, the output directory will contain two files, `pareto_objectives.csv` and `pareto_population.csv`.
 
-`pareto_objectives.csv`
+`pareto_objectives.csv` is a comma-separated values folder containing 2 columns and $n$ rows, where $n$ is the number of non-dominated individuals in the final solution of the optimization. The first column consists of floating-point values between 0 and 1, which is the cost of the individuals normalized to the base potential. The second column is the training loss which is typically 1 or larger, which is the loss of the individuals normalized by the loss of the base potential. `pareto_population.csv` is a comma-separated values where rows represent the binary vectors of which basis functions are pruned (0 means pruned, 1 means retrained).
 
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
+After the optimization is complete, you can select pruned potentials which reflect your desired accuracy-cost balance. These pruned potentials then need to be fitted with MLIP-3. There are two options for initializing these pruned potential.
 
-See the [open issues](https://github.com/RichardZJM/MTP_basis_optimization/issues) for a full list of proposed features (and known issues).
+1. Random initialization, where a blank potential is prepared to be fitting using MLIP-3
+2. Inherited initialization, where the radial parameters are inherited from the base potential and the linear parameters are calculated using least squares. This serves as the initial weight for further fitting with MLIP-3.
+
+In our experience, the inherited initialization yielded better losses for pruned potential with more that 5% of the base potential's cost. In the cases where the random initialization performed better, it was always by a slim margin. Inherited initialization also tends to cause the pruned potential's properties to more closely resemble the base potential, especially for basic properties such as lattice parameter.
+
+Writing a blank potential for random initalization can be performed as follows. This example is a snippet from `examples/ni20`.
+
+```python
+  original_mtp = parse_mtp_file(MTP_FILE)   # Read the base MTP from the path
+  # Generate the blank potential from a binary vector obtained from the optimization
+  new_mtp_dict = assemble_new_tree(original_mtp, best_sse_mask)
+  output_mtp_path = os.path.join(OUTPUT_DIR, "pruned_mtp.almtp")
+  write_mtp_file(new_mtp_dict, output_mtp_path)
+```
+
+Writing a trained potential for inherited initialization can be performed as follows. This example is a snippet from `examples/write_inherited`.
+
+```python
+  from mtpoptimizer.sse import SSECalculator
+
+  sample_individual = np.genfromtxt("mask.csv", delimiter=",") # Read binary vector
+
+  # Load data
+  DATA_DIR = "../ni20/data"
+  ORIG_MTP_FILE = os.path.join(DATA_DIR, "20.almtp")
+  XTWX_FILE = os.path.join(DATA_DIR, "xtwx.bin")
+  XTWY_FILE = os.path.join(DATA_DIR, "xtwy.bin")
+
+  xtwx = np.fromfile(XTWX_FILE, dtype=np.float64)
+  xtwy = np.fromfile(XTWY_FILE, dtype=np.float64)
+  xtwx = np.reshape(xtwx, (len(xtwy), len(xtwy)))
+  yty = 1308558.94848743616603
+
+  original_mtp = parse_mtp_file(ORIG_MTP_FILE)  # Read base potential
+  calc = SSECalculator(xtwx, xtwy, yty, regularization=1e-4)  # Initalize calculator with same params as optimizer
+
+  mask = sample_individual.astype(bool) # Ensure the binary vector are booleans
+
+  # We need to append a True value for each species since we never prune species coeffs
+  full_mask = np.append(np.full((1), True, dtype=bool), mask)
+  theta, sse = calc.calculate(full_mask, True)  # The second argument tell the calcultor to provide theta
+
+  new_mtp_dict = assemble_new_tree(original_mtp, mask, theta)
+  write_mtp_file(new_mtp_dict, "sample.almtp")
+```
+
+The resultant potential can then be fitted using the training dataset in MLIP-3 as usual.
+
+See the [open issues](https://github.com/RichardZJM/MTP_basis_optimization/issues) for known issues.
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
 <!-- CONTRIBUTING -->
 
-## Contributing
-
-Contributions are what make the open source community such an amazing place to learn, inspire, and create. Any contributions you make are **greatly appreciated**.
-
-If you have a suggestion that would make this better, please fork the repo and create a pull request. You can also simply open an issue with the tag "enhancement".
-Don't forget to give the project a star! Thanks again!
-
-1. Fork the Project
-2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the Branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
-
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
-
-### Top contributors:
+## Contributors
 
 <a href="https://github.com/RichardZJM/MTP_basis_optimization/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=RichardZJM/MTP_basis_optimization" alt="contrib.rocks image" />
@@ -151,9 +184,16 @@ Don't forget to give the project a star! Thanks again!
 
 <!-- LICENSE -->
 
-## License
+## License and Citing
 
 Distributed under the project_license. See `LICENSE.txt` for more information.
+
+<!--
+If you find use from the work and use it in a scientific publication, llease consider citing this research with the following:
+
+```bibtex
+To be submitted
+``` -->
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -161,7 +201,7 @@ Distributed under the project_license. See `LICENSE.txt` for more information.
 
 ## Contact
 
-Your Name - [@twitter_handle](https://twitter.com/twitter_handle) - email@email_client.com
+Zijian (Richard) Meng [RichardZJM](https://github.com/RichardZJM) — [richardzjm.com](www.richardzjm.com)
 
 Project Link: [https://github.com/RichardZJM/MTP_basis_optimization](https://github.com/RichardZJM/MTP_basis_optimization)
 
@@ -171,9 +211,12 @@ Project Link: [https://github.com/RichardZJM/MTP_basis_optimization](https://git
 
 ## Acknowledgments
 
-- []()
-- []()
-- []()
+- [Karim Zongo](https://gitlab.com/Kazongogit)
+- [Matthew Thoms](https://gitlab.com/mattmtl)
+- [Ryan Eric Grant (Supervisor)](https://smithengineering.queensu.ca/directory/faculty/ryan-grant.html)
+- [Laurent Karim Béland (Supervisor)](https://smithengineering.queensu.ca/directory/faculty/laurent-karim-beland.html)
+
+This README was made with [Best-README-Template](https://github.com/othneildrew/Best-README-Template).
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
