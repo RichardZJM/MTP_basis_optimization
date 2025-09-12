@@ -10,7 +10,6 @@ def _calculate_jitted(
     num_moments,
     root_ranks,
     root_mus,
-    nchildren,
     scalar_indices,
     basic_indices,
     parents_data,
@@ -20,60 +19,77 @@ def _calculate_jitted(
     base_cost,
 ):
 
+    # Copies of mutable state
     nbasic = nbasic_orig
     ntimes = ntimes_orig
     max_ranks = root_ranks.copy()
     max_mus = root_mus.copy()
-    local_nchildren = nchildren.copy()
 
-    # Use a fixed-size NumPy array as a queue
-    to_remove = np.empty(num_moments, dtype=np.int32)
-    head = 0
-    tail = 0
-
+    # Mark preserved moments by backpropagating from kept outputs
     to_preserve = np.zeros(num_moments, dtype=np.bool_)
+    queue = np.empty(num_moments, dtype=np.int32)
+    qh = 0
+    qt = 0
+
+    # Seed queue with moments explicitly selected by mask
     for i in range(len(mask)):
         if mask[i]:
-            to_preserve[scalar_indices[i]] = True
-        else:
-            if local_nchildren[scalar_indices[i]] == 0:
-                to_remove[tail] = scalar_indices[i]
-                tail += 1
+            m = scalar_indices[i]
+            if not to_preserve[m]:
+                to_preserve[m] = True
+                queue[qt] = m
+                qt += 1
 
-    while head < tail:
-        i = to_remove[head]
-        head += 1
+    # Backpropagate: for each preserved child, preserve its parents (p1, p2)
+    while qh < qt:
+        child = queue[qh]
+        qh += 1
 
-        if to_preserve[i]:
-            continue
+        # If child has parents, iterate them and mark their parents
+        start = parents_idx[child]
+        end = parents_idx[child + 1]
+        # If start == end -> basic node, nothing to propagate
+        for j in range(start, end):
+            p1 = parents_data[j, 0]
+            p2 = parents_data[j, 1]
 
-        # Check for parents
-        is_basic = parents_idx[i] == parents_idx[i + 1]
-        if is_basic:
-            nbasic -= 1
-            ele = basic_indices[i]
-            max_ranks[max(ele[1], ele[2], ele[3])] -= 1
-            max_mus[ele[0]] -= 1
-            continue
+            if not to_preserve[p1]:
+                to_preserve[p1] = True
+                queue[qt] = p1
+                qt += 1
 
-        # Loop over parents
+            if not to_preserve[p2]:
+                to_preserve[p2] = True
+                queue[qt] = p2
+                qt += 1
+
+    # Recompute nbasic, ntimes, and update root counters by accounting removed basics
+    # ntimes_remaining = number of parent relations whose child is preserved
+    ntimes_remaining = 0
+    nbasic_remaining = 0
+
+    for i in range(num_moments):
         start = parents_idx[i]
         end = parents_idx[i + 1]
-        for j in range(start, end):
-            parent1, parent2 = parents_data[j]
+        if to_preserve[i]:
+            # Count retained time relations for this preserved child
+            ntimes_remaining += end - start
+            # If no parents -> basic, count it
+            if start == end:
+                nbasic_remaining += 1
+        else:
+            # If this basic was removed, decrement root counters accordingly
+            if start == end:
+                ele = basic_indices[i]
+                # Decrement the stored root counts (mirror original behaviour)
+                max_ranks[max(ele[1], ele[2], ele[3])] -= 1
+                max_mus[ele[0]] -= 1
 
-            ntimes -= 1
-            local_nchildren[parent1] -= 1
-            if local_nchildren[parent1] == 0:
-                to_remove[tail] = parent1
-                tail += 1
+    # Replace working counters with remaining counts
+    nbasic = nbasic_remaining
+    ntimes = ntimes_remaining
 
-            local_nchildren[parent2] -= 1
-            if local_nchildren[parent2] == 0:
-                to_remove[tail] = parent2
-                tail += 1
-
-    # ===== Cost Heurstic =====
+    # ===== Cost Heuristic =====
     max_rank_val = np.count_nonzero(max_ranks)
     radial_func_count_val = np.count_nonzero(max_mus)
 
@@ -117,15 +133,11 @@ class MTPCostCalculator:
         self.root_mus = root_mus[root_mus != 0]
         self.root_ranks = root_ranks[root_ranks != 0]
 
-        self.nchildren = np.zeros(self.num_moments, dtype=np.int32)
-
         # Build parent lists
         py_parents = [[] for _ in range(self.num_moments)]
         for i, ele in enumerate(self.times_indices):
             p1, p2, _, child = ele
             py_parents[child].append((p1, p2))
-            self.nchildren[p1] += 1
-            self.nchildren[p2] += 1
 
         # Convert it to a flattened ragged array for compilation support.
         self.parents_idx = np.zeros(self.num_moments + 1, dtype=np.int32)
@@ -148,7 +160,6 @@ class MTPCostCalculator:
             self.num_moments,
             self.root_ranks,
             self.root_mus,
-            self.nchildren,
             self.scalar_indices,
             self.basic_indices,
             self.parents_data,
