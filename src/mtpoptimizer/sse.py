@@ -68,6 +68,9 @@ class SSECalculator:
             # If the matrix is singular, the system can't be solved.
             return float("inf")
 
+        sse = (self.yty - theta @ xtwym) / self.base_sse
+
+        # We must use item since it may be a single element numpy array
         if get_theta:
-            return (theta, (self.yty - theta @ xtwym) / self.base_sse)
-        return (self.yty - theta @ xtwym) / self.base_sse
+            return (theta, sse.item())
+        return sse.item()
