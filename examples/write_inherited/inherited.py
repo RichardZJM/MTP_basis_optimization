@@ -27,6 +27,6 @@ if __name__ == "__main__":
     mask = sample_individual.astype(bool)
     # We need to append a True value for each species since we never prune species coeffs
     full_mask = np.append(np.full((1), True, dtype=bool), mask)
-    theta, sse = calc.calculate(full_mask, True)
+    theta, sse = calc.calculate(full_mask, get_theta=True)
     new_mtp_dict = assemble_new_tree(original_mtp, mask, theta)
     write_mtp_file(new_mtp_dict, "sample.almtp")
