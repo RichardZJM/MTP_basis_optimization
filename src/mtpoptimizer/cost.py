@@ -45,10 +45,8 @@ def _calculate_jitted(
         child = queue[qh]
         qh += 1
 
-        # If child has parents, iterate them and mark their parents
         start = parents_idx[child]
         end = parents_idx[child + 1]
-        # If start == end -> basic node, nothing to propagate
         for j in range(start, end):
             p1 = parents_data[j, 0]
             p2 = parents_data[j, 1]
@@ -64,7 +62,6 @@ def _calculate_jitted(
                 qt += 1
 
     # Recompute nbasic, ntimes, and update root counters by accounting removed basics
-    # ntimes_remaining = number of parent relations whose child is preserved
     ntimes_remaining = 0
     nbasic_remaining = 0
 
@@ -72,33 +69,28 @@ def _calculate_jitted(
         start = parents_idx[i]
         end = parents_idx[i + 1]
         if to_preserve[i]:
-            # Count retained time relations for this preserved child
             ntimes_remaining += end - start
-            # If no parents -> basic, count it
-            if start == end:
+            if start == end:  # basic
                 nbasic_remaining += 1
         else:
-            # If this basic was removed, decrement root counters accordingly
-            if start == end:
+            if start == end:  # removed basic
                 ele = basic_indices[i]
-                # Decrement the stored root counts (mirror original behaviour)
                 max_ranks[max(ele[1], ele[2], ele[3])] -= 1
                 max_mus[ele[0]] -= 1
-
-    # Replace working counters with remaining counts
-    nbasic = nbasic_remaining
-    ntimes = ntimes_remaining
 
     # ===== Cost Heuristic =====
     max_rank_val = np.count_nonzero(max_ranks)
     radial_func_count_val = np.count_nonzero(max_mus)
 
     precompute = 4 * max_rank_val
+    radial_basis = 8 * radial_basis_size + 14
     radial_vals = 4 * radial_func_count_val * radial_basis_size
-    basics = 39 * nbasic
-    times = 9 * ntimes
+    basics = 39 * nbasic_remaining
+    times = 9 * ntimes_remaining
 
-    return (neigh_count * (24 + precompute + radial_vals + basics) + times) / base_cost
+    return (
+        neigh_count * (24 + precompute + radial_basis + radial_vals + basics) + times
+    ) / base_cost
 
 
 class MTPCostCalculator:
@@ -124,7 +116,6 @@ class MTPCostCalculator:
 
     def _prepare_graph(self):
         """Pre-computes graph properties in a Numba-friendly format."""
-        # Calculate root mus and ranks
         root_mus = np.zeros(100, dtype=np.int32)
         root_ranks = np.zeros(100, dtype=np.int32)
         for i, ele in enumerate(self.basic_indices):
