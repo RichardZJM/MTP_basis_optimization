@@ -11,7 +11,10 @@
     <a href="https://github.com/RichardZJM/MTP_basis_optimization"><strong>GitHub »</strong></a>
     <br />
     <br />
-    <a href="https://github.com/RichardZJM/MTP_basis_optimization">Read Paper</a>
+    <a href="https://github.com/RichardZJM/MTP_basis_optimization">Read Paper »</a>
+    <br />
+    <a href="https://github.com/RichardZJM/mlip3-extract">Matrix Problem Extraction Code »</a>
+
   </p>
 </div>
 
