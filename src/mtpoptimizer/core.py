@@ -1,10 +1,16 @@
+"""
+Core module for  of Moment Tensor Potentials (MTP).
+
+This module implements the main optimization framework for pruning MTP structures while balancing computational cost and accuracy. It supports both serial and MPI-parallel execution modes, using either NSGA-II or MOEA/D algorithms from the pymoo framework.
+"""
+
+from typing import Optional, Tuple, List
 import numpy as np
 import os
 import time
 
 from pymoo.core.problem import Problem
 from pymoo.algorithms.moo.nsga2 import NSGA2
-from pymoo.algorithms.moo.moead import MOEAD
 from pymoo.algorithms.moo.moead import ParallelMOEAD
 from pymoo.util.ref_dirs import get_reference_directions
 from pymoo.optimize import minimize
@@ -32,9 +38,16 @@ except ImportError:
 
 if IS_MPI:
 
-    def mpi_worker_routine(problem):
+    def mpi_worker_routine(problem) -> None:
         """
-        The main loop for a worker process.
+        The main loop for a worker process in MPI parallel mode.
+
+        This function implements workers which continuously receive population chunks from the master, evaluate them, and send results back until receiving a shutdown signal.
+
+        Parameters
+        ----------
+        problem : MTPPruningProblem
+            The optimization problem instance containing evaluation methods
         """
         while True:
             COMM.Scatter(None, problem.work_buffer, root=0)
@@ -48,9 +61,19 @@ if IS_MPI:
             results_chunk = problem.evaluate_chunk(problem.work_buffer)
             COMM.Gather(results_chunk, None, root=0)
 
-    def shutdown_workers(problem):
+    def shutdown_workers(problem) -> List[float]:
         """
-        Master's signal to send a shutdown.
+        Send shutdown signal to all worker processes and gather timing statistics.
+
+        Parameters
+        ----------
+        problem : MTPPruningProblem
+            The optimization problem instance containing MPI buffers
+
+        Returns
+        -------
+        List[float]
+            Evaluation times from all processes, index 0 is master's time
         """
         if RANK == 0:
             print("Master (rank 0) is shutting down workers...")
@@ -62,12 +85,42 @@ if IS_MPI:
 
 class MTPPruningProblem(Problem):
     """
-    The core problem definition.
+    Multi-objective optimization problem for pruning MTP structures.
+
+    This class defines the optimization problem for the pymoo framework, handling both serial and MPI-parallel evaluation of solutions.
     """
 
     def __init__(
-        self, mtp_file, xtwx, xtwy, yty, neigh_count, regularization, pop_size
+        self,
+        mtp_file,
+        xtwx: np.ndarray,
+        xtwy: np.ndarray,
+        ytwy: float,
+        neigh_count: int,
+        regularization: float,
+        pop_size: int,
     ):
+        """
+        Initialize the pymoo optimization problem.
+
+        Parameters
+        ----------
+        mtp_file:
+            File path to the MTP to optimize
+        xtwx : np.ndarray
+            Pre-computed XᵀWX matrix, shape (n_features, n_features)
+        xtwy : np.ndarray
+            Pre-computed XᵀWy vector, shape (n_features,)
+        ytwy : float
+            Pre-computed yᵀWy scalar
+        neigh_count : int
+            Number of neighbors to optimize for
+        regularization : float
+            Tikhonov regularization parameter (λ), by default 0.0.
+            Adds λI to XᵀWX for numerical stability
+        pop_size : int
+            The population size to use during optimization
+        """
         # All processes initialize the problem to have access to calculators
         mtp_data = parse_mtp_file(mtp_file)
         self.n_species = mtp_data["species_count"]
@@ -76,7 +129,7 @@ class MTPPruningProblem(Problem):
         self.cost_calculator = MTPCostCalculator(
             mtp_data, neigh_count, radial_basis_size
         )
-        self.sse_calculator = SSECalculator(xtwx, xtwy, yty, regularization, rank=RANK)
+        self.sse_calculator = SSECalculator(xtwx, xtwy, ytwy, regularization, rank=RANK)
 
         self.eval_time = 0
         self.MPI_time = 0
@@ -102,9 +155,19 @@ class MTPPruningProblem(Problem):
 
         super().__init__(n_var=n_var, n_obj=2, xl=0, xu=1, type_var=bool)
 
-    def evaluate_chunk(self, x_chunk):
+    def evaluate_chunk(self, x_chunk: np.ndarray) -> np.ndarray:
         """
-        Evaluates a chunk of individuals.
+        Evaluate fitness for a chunk of population members.
+
+        Parameters
+        ----------
+        x_chunk : np.ndarray
+            Array of shape (chunk_size, n_var + 1) containing boolean masks. First column is a flag indicating whether to process the row.
+
+        Returns
+        -------
+        np.ndarray
+            Array of shape (chunk_size, 2) containing [cost, sse] pairs for each evaluated solution.
         """
         start_time = time.perf_counter()
         results = []
@@ -122,11 +185,21 @@ class MTPPruningProblem(Problem):
         self.eval_time += time.perf_counter() - start_time
         return np.ascontiguousarray(results, dtype=np.float64)
 
-    def _evaluate(self, X, out, *args, **kwargs):
+    def _evaluate(self, X: np.ndarray, out: dict, *args, **kwargs) -> None:
         """
-        This method is called by pymoo's `minimize` function.
-        In serial mode, it evaluates all individuals directly.
-        In MPI mode, serves as a wrapper.
+        Population evaluation method required by pymoo framework.
+
+        This method is called by pymoo's `minimize` function to evaluate fitness for each generation of solutions.
+
+        Parameters
+        ----------
+        X : np.ndarray
+            Population matrix of shape (n_individuals, n_var) containing
+            boolean masks for each solution
+        out : dict
+            Dictionary that will store the fitness values under key 'F'
+        *args, **kwargs
+            Additional arguments passed by pymoo (unused)
         """
         if IS_MPI:  # Only run by master.
 
@@ -157,29 +230,74 @@ class MTPPruningProblem(Problem):
 
 
 def run_optimization(
-    mtp_file,
-    xtwx,
-    xtwy,
-    yty,
-    neigh_count,
-    regularization=0,
-    output_dir="outputs",
-    end_condition=("n_gen", 1000),
-    pop_size=96,
-    seed=None,
-    show_plot=True,
-    verbose=True,
-    init_pop=None,
-    algorithim="nsga",
-    mutation_rate=None,
-):
+    mtp_file: str,
+    xtwx: np.ndarray,
+    xtwy: np.ndarray,
+    ytwy: float,
+    neigh_count: int,
+    regularization: float = 0,
+    output_dir: str = "outputs",
+    end_condition: Tuple[str, int] = ("n_gen", 1000),
+    pop_size: int = 512,
+    seed: Optional[int] = None,
+    show_plot: bool = True,
+    verbose: bool = True,
+    init_pop: Optional[np.ndarray] = None,
+    algorithm: str = "nsga",
+    mutation_rate: Optional[float] = None,
+) -> Optional[minimize]:
     """
-    Runs MTP optimization. Algos: moead, nsga (Default).
+    Run the multi-objective optimization to prune an MTP structure.
+
+    This is the entry point for the optimization process. It handles setup, execution, and result processing for both serial and parallel modes.
+
+    Parameters
+    ----------
+    mtp_file : str
+        Path to the MTP file to optimize
+    xtwx : np.ndarray
+        Precomputed XᵀWX matrix for SSE calculation
+    xtwy : np.ndarray
+        Precomputed XᵀWy vector for SSE calculation
+    ytwy : float
+        Precomputed yᵀWy scalar for SSE calculation
+    neigh_count : int
+        Number of neighbors for cost heuristic
+    regularization : float, optional
+        L2 regularization parameter, by default 0
+    output_dir : str, optional
+        Directory to save results, by default "outputs"
+    end_condition : tuple[str, int], optional
+        Termination criterion, by default ("n_gen", 1000)
+    pop_size : int, optional
+        Population size, by default 512
+    seed : int, optional
+        Random seed for reproducibility, by default None
+    show_plot : bool, optional
+        Whether to show Pareto front plot, by default True
+    verbose : bool, optional
+        Whether to print progress, by default True
+    init_pop : np.ndarray, optional
+        Initial population matrix, by default None
+    algorithm : str, optional
+        "nsga" (default) or "moead"
+    mutation_rate : float, optional
+        Override default mutation rate, by default None
+
+    Returns
+    -------
+    minimize
+        pymoo Result object (only from master/serial process)
+        None from worker processes in MPI mode
+
+    Files saved in output_dir:
+    - pareto_population.csv: Binary masks for Pareto-optimal solutions
+    - pareto_objectives.csv: Corresponding objective values
     """
     np.random.seed(seed)
 
     problem = MTPPruningProblem(
-        mtp_file, xtwx, xtwy, yty, neigh_count, regularization, pop_size
+        mtp_file, xtwx, xtwy, ytwy, neigh_count, regularization, pop_size
     )
 
     if IS_MPI and RANK > 0:  # MPI Workers
@@ -195,9 +313,8 @@ def run_optimization(
             print("Mode: Serial")
 
     if not init_pop is None:
-        print(f"Using initial population of size {init_pop.shape[0]}!")
+        print(f"Using user-specified initial population of size {init_pop.shape[0]}!")
         sampling = init_pop.astype(bool)
-
     else:
         print("Using seeded initial population.")
 
@@ -217,7 +334,7 @@ def run_optimization(
 
         sampling = np.random.permutation(pop)
 
-    if algorithim == "moead":
+    if algorithm == "moead":
         ref_dirs = get_reference_directions("energy", 2, pop_size)
         solver = ParallelMOEAD(
             ref_dirs=ref_dirs,

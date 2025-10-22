@@ -1,20 +1,56 @@
+"""
+Module for manipulating and assembling Moment Tensor Potential (MTP) tree structures.
+
+This module provides functionality modifying MTPs based on masks and optional coefficient updates. It removes unused nodes and radial basis sets, and remaps indices to be compact.
+"""
+
+from typing import Dict, List, Optional, Union
 import numpy as np
 from collections import OrderedDict
 
 
-def assemble_new_tree(original_mtp, mask, theta: np.ndarray = None):
+def assemble_new_tree(
+    original_mtp: Dict[str, Union[str, int, List, bool, Dict]],
+    mask: np.ndarray,
+    theta: Optional[np.ndarray] = None,
+) -> Dict[str, Union[str, int, List, bool, Dict]]:
     """
     Assembles a new, pruned MTP tree from an original tree and a mask.
 
-    Args:
-        original_mtp (dict): A dictionary containing initial MTP data.
-        mask (np.ndarray): A boolean mask for the scalar moments to keep.
-        theta (np.ndarray, optional): A vector of new coefficients. If provided,
-            a trained potential is written. The first `species_count` elements
-            are species coefficients, and the rest are moment coefficients.
+    Parameters
+    -----
+    original_mtp : dict
+        A dictionary containing initial MTP data with at least the following key components:
+        - species_count : int
+            Number of species in the potential
+        - alpha_moments_count : int
+            Total number of nodes in the tree
+        - alpha_index_basic : list
+            Basic node definitions
+        - alpha_index_times : list
+            Tree structure edges
+        - alpha_moment_mapping : list
+            Mapping from scalar moments to tree nodes
+    mask : np.ndarray
+        Boolean mask array indicating which scalar moments to keep in the pruned tree.
+        True values indicate moments to retain.
+    theta : np.ndarray, optional
+        Vector of new coefficients for the pruned potential. If provided,
+        creates a trained potential where:
+        - First `species_count` elements are species coefficients
+        - Remaining elements are moment coefficients corresponding to retained moments
+        Requires species_coefficients, and moment_coeffs in the original MTP dict.
 
-    Returns:
-        dict: A dictionary containing the pruned MTP data.
+    Returns
+    -----
+    dict
+        A dictionary containing the pruned MTP data.
+
+    Raises
+    -----
+    ValueError
+        If theta is provided but has incorrect length (must be species_count + sum(mask))
+
     """
     # Build a parent lookup for efficient upwards traversal of the tree
     parents_lookup = [[] for _ in range(original_mtp["alpha_moments_count"])]

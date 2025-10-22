@@ -1,22 +1,39 @@
+"""
+Module for reading and writing Moment Tensor Potential (MTP) files.
+
+This module provides functionality to parse and write MTP files in the standard format. It handles both trained and untrained potentials.
+"""
+
+from typing import Dict, List, Union, Optional
 import regex as re
 from collections import OrderedDict
 
 
-def parse_mtp_file(filepath: str):
+def parse_mtp_file(
+    filepath: str,
+) -> Optional[Dict[str, Union[str, int, float, List, bool, Dict]]]:
     """
-    Reads and parses a trained or untrained MTP potential file from a given path.
-    Does not use active learning information.
+    Parse a trained or untrained MTP potential file.
 
-    Args:
-        filepath (str): The path to the MTP data file.
+    This function reads and parses an MTP file. It does not process active learning information.
 
-    Returns:
-        dict: A dictionary containing the parsed data, including an 'is_trained' flag.
-        None: If the file cannot be found or another error occurs.
+    Parameters
+    ----------
+    filepath : str
+        Path to the MTP data file to parse
+
+    Returns
+    -------
+    dict or None
+        Dictionary containing the parsed MTP data with following key components:
+        - Standard MTP parameters (version, species_count, etc.)
+        - Tree structure (alpha_index_basic, alpha_index_times, etc.)
+        - Trained coefficients if present (scaling, coefficients)
+        - is_trained flag indicating presence of trained parameters
+        Returns None if file cannot be opened or parsed
     """
 
-    def _parse_scalar(s):
-        """Helper to parse a string into int, float, or string."""
+    def _parse_scalar(s: str) -> Union[int, float, str]:
         try:
             return int(s)
         except ValueError:
@@ -101,14 +118,28 @@ def parse_mtp_file(filepath: str):
     return parsed_dict
 
 
-def write_mtp_file(mtp_dict: dict, filepath: str, write_trained: bool = True):
+def write_mtp_file(
+    mtp_dict: Dict[str, Union[str, int, float, List, bool, Dict]],
+    filepath: str,
+    write_trained: bool = True,
+) -> None:
     """
-    Writes an MTP dictionary to a file, strictly following the conventional key order.
+    Write an MTP dictionary to a file in standard format.
 
-    Args:
-        mtp_dict (dict): A dictionary containing the MTP data.
-        filepath (str): The path to the output file.
-        write_trained (bool): If False, trained parameters are excluded.
+    This function writes an MTP potential specification to a file, with optional exclusion of trained parameters.
+
+    Parameters
+    ----------
+    mtp_dict : dict
+        Dictionary containing MTP data with standard keys:
+        - Standard parameters (version, species_count, etc.)
+        - Tree structure (alpha_index_basic, alpha_index_times, etc.)
+        - Optional trained parameters (scaling, coefficients)
+    filepath : str
+        Path where the MTP file should be written
+    write_trained : bool, optional
+        If False, excludes trained parameters (scaling, coefficients)
+        Default is True
     """
     # This key order strictly follows the format of a trained MTP file example.
     KEY_ORDER = [
@@ -161,8 +192,6 @@ def write_mtp_file(mtp_dict: dict, filepath: str, write_trained: bool = True):
         with open(filepath, "w") as f:
             f.write("MTP\n")
             written_keys = set()
-
-            # Write all known keys in the canonical order first
             for key in KEY_ORDER:
                 if key in data_to_write:
                     value = data_to_write[key]

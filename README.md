@@ -61,8 +61,8 @@ After preparing a base potential, extract the matrix problem required by this pa
 The pruning procedure requires the following components:
 
 - The $\mathbf{X}^\intercal\mathbf{WX}$ matrix (binary file)
-- The $\mathbf{X}^\intercal\mathbf{WY}$ vector (binary file)
-- The $\mathbf{Y}^\intercal\mathbf{Y}$ value (scalar)
+- The $\mathbf{X}^\intercal\mathbf{Wy}$ vector (binary file)
+- The $\mathbf{y}^\intercal\mathbf{Wy}$ value (scalar)
 - The average number of neighbors (scalar)
 
 These are obtained using the `extract_problem` commands from the fork. The four values are inputs to the `run_optimization` command. A cheap-to-run example problems is provided in `examples/ni20` (Nickel, base potential level 20). The dataset for that example is from [23-Single-Element-DNPs](https://github.com/saidigroup/23-Single-Element-DNPs). Examples also include `examples/ni28` (Nickel, level 28) and `examples/sio28` (Silicon–Oxygen, level 28) although these may require high-performance computing resources. All included examples have the matrix problem components precalculated.
@@ -73,8 +73,8 @@ The `run_optimization` function accepts the following parameters:
 def run_optimization(
     mtp_file,             # Path to the base MTP file
     xtwx,                 # Path to binary XTWX file
-    xtwy,                 # Path to binary XTWY file
-    yty,                  # yTy value (float64)
+    xtwy,                 # Path to binary XTWy file
+    ytwy,                  # yTWy value (float64)
     neigh_count,          # Average number of neighbors (float64)
     regularization=0.0,   # Lambda for Tikhonov regularization
     output_dir="outputs",# Directory to write results
@@ -139,10 +139,10 @@ XTWY_FILE = os.path.join(DATA_DIR, "xtwy.bin")
 xtwx = np.fromfile(XTWX_FILE, dtype=np.float64)
 xtwy = np.fromfile(XTWY_FILE, dtype=np.float64)
 xtwx = np.reshape(xtwx, (len(xtwy), len(xtwy)))
-yty = 1308558.94848743616603
+ytwy = 1308558.94848743616603
 
 original_mtp = parse_mtp_file(ORIG_MTP_FILE)  # Read base potential
-calc = SSECalculator(xtwx, xtwy, yty, regularization=1e-4)  # Initialize calculator with same parameters as optimizer
+calc = SSECalculator(xtwx, xtwy, ytwy, regularization=1e-4)  # Initialize calculator with same parameters as optimizer
 
 mask = sample_individual.astype(bool)  # Ensure binary vector is boolean
 

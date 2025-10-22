@@ -34,7 +34,7 @@ if __name__ == "__main__":
         mtp_file=MTP_FILE,
         xtwx=xtwx,
         xtwy=xtwy,
-        yty=1308558.94848743616603,  # Get this from the MLIP-3 fork
+        ytwy=1308558.94848743616603,  # Get this from the MLIP-3 fork
         neigh_count=20.528098,  # Get this from the MLIP-3 fork
         regularization=1e-4,
         output_dir=OUTPUT_DIR,
@@ -42,7 +42,7 @@ if __name__ == "__main__":
         pop_size=96,
         show_plot=True,
         seed=None,
-        algorithim="nsga",
+        algorithm="nsga",
     )
 
     if result:

@@ -34,15 +34,15 @@ if __name__ == "__main__":
         mtp_file=MTP_FILE,
         xtwx=xtwx,
         xtwy=xtwy,
-        yty=6483714564.848065376281738,
+        ytwy=6483714564.848065376281738,
         neigh_count=46.017803,
         regularization=5e-7,
         output_dir=OUTPUT_DIR,
-        end_condition=("n_gen", 1),
+        end_condition=("time", 30),
         pop_size=96,
         show_plot=True,
         seed=None,
-        algorithim="moead",
+        algorithm="nsga",
     )
 
     if result:

@@ -1,29 +1,64 @@
+"""
+Module for computing computational cost heuristics of an MTP.
+
+This module provides functionality to estimate the computational cost of evaluating a pruned MTP structure. Numba is used for high-performance computation.
+"""
+
 import numpy as np
 import numba
 
 
 @numba.njit(cache=True)
 def _calculate_jitted(
-    mask,
-    nbasic_orig,
-    ntimes_orig,
-    num_moments,
-    root_ranks,
-    root_mus,
-    scalar_indices,
-    basic_indices,
-    parents_data,
-    parents_idx,
-    neigh_count,
-    radial_basis_size,
-    base_cost,
-):
+    mask: np.ndarray,
+    num_moments: int,
+    n_ranks: int,
+    n_mus: int,
+    scalar_indices: np.ndarray,
+    basic_indices: np.ndarray,
+    parents_data: np.ndarray,
+    parents_idx: np.ndarray,
+    neigh_count: int,
+    radial_basis_size: int,
+    base_cost: float,
+) -> float:
+    """
+    Jit-compiled function to compute the computational cost heuristic.
 
-    # Copies of mutable state
-    nbasic = nbasic_orig
-    ntimes = ntimes_orig
-    max_ranks = root_ranks.copy()
-    max_mus = root_mus.copy()
+    Parameters
+    ----------
+    mask : np.ndarray
+        Boolean mask indicating which scalar moments to keep
+    num_moments : int
+        Total number of moments in the tree
+    n_ranks : int
+        Number of possible angular ranks
+    n_mus : int
+        Number of possible radial functions
+    scalar_indices : np.ndarray
+        Mapping from scalar outputs to tree nodes
+    basic_indices : np.ndarray
+        Definition of basic moments [mu, l, n, k]
+    parents_data : np.ndarray
+        Flattened array of parent pairs for each node
+    parents_idx : np.ndarray
+        Index array for accessing parents_data
+    neigh_count : int
+        Number of neighbors in evaluation
+    radial_basis_size : int
+        Size of radial basis
+    base_cost : float
+        Cost of full MTP for normalization
+
+    Returns
+    -------
+    float
+        Estimated computational cost relative to base_cost
+    """
+
+    # Flags for mus and ranks included in preserved basics
+    mus_flags = np.zeros(n_mus, dtype=np.bool_)
+    rank_flags = np.zeros(n_ranks, dtype=np.bool_)
 
     # Mark preserved moments by backpropagating from kept outputs
     to_preserve = np.zeros(num_moments, dtype=np.bool_)
@@ -61,7 +96,7 @@ def _calculate_jitted(
                 queue[qt] = p2
                 qt += 1
 
-    # Recompute nbasic, ntimes, and update root counters by accounting removed basics
+    # Recompute nbasic, ntimes, and update root counters by accounting preserved basics
     ntimes_remaining = 0
     nbasic_remaining = 0
 
@@ -72,15 +107,17 @@ def _calculate_jitted(
             ntimes_remaining += end - start
             if start == end:  # basic
                 nbasic_remaining += 1
-        else:
-            if start == end:  # removed basic
                 ele = basic_indices[i]
-                max_ranks[max(ele[1], ele[2], ele[3])] -= 1
-                max_mus[ele[0]] -= 1
+                mu = ele[0]
+                rank = max(ele[1], ele[2], ele[3])
+                if mu < n_mus:
+                    mus_flags[mu] = True
+                if rank < n_ranks:
+                    rank_flags[rank] = True
 
-    # ===== Cost Heuristic =====
-    max_rank_val = np.count_nonzero(max_ranks)
-    radial_func_count_val = np.count_nonzero(max_mus)
+    # Cost Heuristic
+    max_rank_val = np.count_nonzero(rank_flags)
+    radial_func_count_val = np.count_nonzero(mus_flags)
 
     precompute = 4 * max_rank_val
     radial_basis = 8 * radial_basis_size + 14
@@ -95,7 +132,9 @@ def _calculate_jitted(
 
 class MTPCostCalculator:
     """
-    Calculates a computational cost heuristic for a pruned MTP tree.
+    Calculator for MTP computational cost heuristics.
+
+    This class prepares and maintains the data structures needed for efficient cost calculation of pruned MTP structures. It pre-processes and uses Numba to increase efficiency.
     """
 
     def __init__(self, mtp_data: dict, neigh_count: int, radial_basis_size: int):
@@ -114,15 +153,15 @@ class MTPCostCalculator:
         self.base_cost = 1
         self.base_cost = self.calculate(np.ones_like(self.scalar_indices).astype(bool))
 
-    def _prepare_graph(self):
-        """Pre-computes graph properties in a Numba-friendly format."""
-        root_mus = np.zeros(100, dtype=np.int32)
-        root_ranks = np.zeros(100, dtype=np.int32)
-        for i, ele in enumerate(self.basic_indices):
-            root_mus[ele[0]] += 1
-            root_ranks[max(ele[1:3])] += 1
-        self.root_mus = root_mus[root_mus != 0]
-        self.root_ranks = root_ranks[root_ranks != 0]
+    def _prepare_graph(self) -> None:
+        mus_set = set()
+        rank_set = set()
+        for ele in self.basic_indices:
+            mus_set.add(ele[0])
+            rank_set.add(max(ele[1], ele[2], ele[3]))
+
+        self.n_mus = len(mus_set)
+        self.n_ranks = len(rank_set)
 
         # Build parent lists
         py_parents = [[] for _ in range(self.num_moments)]
@@ -139,18 +178,28 @@ class MTPCostCalculator:
         self.parents_idx[self.num_moments] = len(flat_parents_list)
         self.parents_data = np.array(flat_parents_list, dtype=np.int32)
 
-    def calculate(self, mask: np.ndarray):
+    def calculate(self, mask: np.ndarray) -> float:
         """
-        Calculates the cost for a given feature mask.
-        Wrapper around Numba.
+        Calculate computational cost for a pruned MTP structure.
+
+        This method is a high-level wrapper around the Numba-compiled _calculate_jitted function. It computes a normalized cost heuristic that estimates how computationally expensive the pruned MTP would be compared to the full structure.
+
+        Parameters
+        ----------
+        mask : np.ndarray
+            Boolean mask indicating which scalar moments to keep.
+            Length must match the number of scalar outputs without species coefficients.
+
+        Returns
+        -------
+        float
+            Estimated computational cost normalized relative to the full MTP.
         """
         return _calculate_jitted(
             mask,
-            self.nbasic_orig,
-            self.ntimes_orig,
             self.num_moments,
-            self.root_ranks,
-            self.root_mus,
+            self.n_ranks,
+            self.n_mus,
             self.scalar_indices,
             self.basic_indices,
             self.parents_data,

@@ -34,7 +34,7 @@ if __name__ == "__main__":
         mtp_file=MTP_FILE,
         xtwx=xtwx,
         xtwy=xtwy,
-        yty=1308558.94848743616603,
+        ytwy=1308558.94848743616603,
         neigh_count=20.528098,
         regularization=1e-4,
         output_dir=OUTPUT_DIR,
@@ -42,7 +42,7 @@ if __name__ == "__main__":
         pop_size=96,
         show_plot=True,
         seed=None,
-        algorithim="moead",
+        algorithm="nsga",
     )
 
     if result:
