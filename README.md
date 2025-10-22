@@ -6,7 +6,7 @@
 <h1 align="center">MTP Basis Optimization</h1>
 
   <p align="center">
-    Cost-aware pruning of basis functions for Moment Tensor Potentials (MTP)
+    Accelerating Moment Tensor Potentials through Post-Training Pruning
     <br />
     <a href="https://github.com/RichardZJM/MTP_basis_optimization"><strong>GitHub »</strong></a>
     <br />
