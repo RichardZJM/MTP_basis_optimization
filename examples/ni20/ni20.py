@@ -38,11 +38,12 @@ if __name__ == "__main__":
         neigh_count=20.528098,  # Get this from the MLIP-3 fork
         regularization=1e-4,
         output_dir=OUTPUT_DIR,
-        end_condition=("time", 30),
+        end_condition=("n_iter", 20),
         pop_size=96,
         show_plot=True,
         seed=None,
         algorithm="nsga",
+        save_interval=3,
     )
 
     if result:
