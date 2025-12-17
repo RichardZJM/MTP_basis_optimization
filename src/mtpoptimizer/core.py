@@ -1,5 +1,5 @@
 """
-Core module for  of Moment Tensor Potentials (MTP).
+Core module for Moment Tensor Potentials (MTP) Optimization.
 
 This module implements the main optimization framework for pruning MTP structures while balancing computational cost and accuracy. It supports both serial and MPI-parallel execution modes, using either NSGA-II or MOEA/D algorithms from the pymoo framework.
 """
@@ -10,6 +10,7 @@ import os
 import time
 
 from pymoo.core.problem import Problem
+from pymoo.core.result import Result
 from pymoo.algorithms.moo.nsga2 import NSGA2
 from pymoo.algorithms.moo.moead import ParallelMOEAD
 from pymoo.util.ref_dirs import get_reference_directions
@@ -249,6 +250,7 @@ class SaveInterval(Callback):
         super().__init__()
         self.save_interval = save_interval
         self.output_dir = output_dir
+        os.makedirs(self.output_dir, exist_ok=True)
 
     def notify(self, algorithm):
         if algorithm.n_iter % self.save_interval == 0:
@@ -285,7 +287,7 @@ def run_optimization(
     algorithm: str = "nsga",
     mutation_rate: Optional[float] = None,
     save_interval: int = 1000,
-) -> Optional[minimize]:
+) -> Optional[Result]:
     """
     Run the multi-objective optimization to prune an MTP structure.
 
