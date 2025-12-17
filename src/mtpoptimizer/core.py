@@ -1,5 +1,5 @@
 """
-Core module for  of Moment Tensor Potentials (MTP).
+Core module for Moment Tensor Potentials (MTP) Optimization.
 
 This module implements the main optimization framework for pruning MTP structures while balancing computational cost and accuracy. It supports both serial and MPI-parallel execution modes, using either NSGA-II or MOEA/D algorithms from the pymoo framework.
 """
@@ -10,6 +10,7 @@ import os
 import time
 
 from pymoo.core.problem import Problem
+from pymoo.core.result import Result
 from pymoo.algorithms.moo.nsga2 import NSGA2
 from pymoo.algorithms.moo.moead import ParallelMOEAD
 from pymoo.util.ref_dirs import get_reference_directions
@@ -17,6 +18,7 @@ from pymoo.optimize import minimize
 from pymoo.visualization.scatter import Scatter
 from pymoo.operators.crossover.ux import UniformCrossover
 from pymoo.operators.mutation.bitflip import BitflipMutation
+from pymoo.core.callback import Callback
 
 from .cost import MTPCostCalculator
 from .sse import SSECalculator
@@ -229,6 +231,45 @@ class MTPPruningProblem(Problem):
             out["F"] = results
 
 
+class SaveInterval(Callback):
+    """
+    A custom callback to save the pareto front every so often. Useful for restarting long runs.
+    """
+
+    def __init__(self, save_interval: int, output_dir) -> None:
+        """
+         Initialize the pymoo optimization problem.
+
+        Parameters
+        ----------
+        save_interval : int
+            Interval to save to output folder.
+        output_dir : str
+            Directory to save to.
+        """
+        super().__init__()
+        self.save_interval = save_interval
+        self.output_dir = output_dir
+        os.makedirs(self.output_dir, exist_ok=True)
+
+    def notify(self, algorithm):
+        if algorithm.n_iter % self.save_interval == 0:
+            pop_path = os.path.join(
+                self.output_dir, "pareto_population_" + str(algorithm.n_iter) + ".csv"
+            )
+            obj_path = os.path.join(
+                self.output_dir, "pareto_objectives_" + str(algorithm.n_iter) + ".csv"
+            )
+            F = algorithm.pop.get("F")
+            X = algorithm.pop.get("X")
+            sorted_indices = np.argsort(F[:, 0])
+            sorted_F = F[sorted_indices]
+            sorted_X = X[sorted_indices]
+            np.savetxt(pop_path, sorted_X.astype(int), delimiter=",", fmt="%d")
+            np.savetxt(obj_path, sorted_F, delimiter=",")
+            print(f"Saved results to {self.output_dir}")
+
+
 def run_optimization(
     mtp_file: str,
     xtwx: np.ndarray,
@@ -245,7 +286,8 @@ def run_optimization(
     init_pop: Optional[np.ndarray] = None,
     algorithm: str = "nsga",
     mutation_rate: Optional[float] = None,
-) -> Optional[minimize]:
+    save_interval: int = 1000,
+) -> Optional[Result]:
     """
     Run the multi-objective optimization to prune an MTP structure.
 
@@ -283,7 +325,8 @@ def run_optimization(
         "nsga" (default) or "moead"
     mutation_rate : float, optional
         Override default mutation rate, by default None
-
+    save_interval : int, optional
+        Save to output folder every save_interval iterations, 1000 by default
     Returns
     -------
     minimize
@@ -334,12 +377,15 @@ def run_optimization(
 
         sampling = np.random.permutation(pop)
 
+    callback = SaveInterval(save_interval, output_dir)
+
     if algorithm == "moead":
         ref_dirs = get_reference_directions("energy", 2, pop_size)
         solver = ParallelMOEAD(
             ref_dirs=ref_dirs,
             sampling=sampling,
             crossover=UniformCrossover(),
+            callback=callback,
             mutation=BitflipMutation(prob_var=mutation_rate),
         )
     else:
@@ -347,6 +393,7 @@ def run_optimization(
             pop_size=pop_size,
             sampling=sampling,
             crossover=UniformCrossover(),
+            callback=callback,
             mutation=BitflipMutation(prob_var=mutation_rate),
             eliminate_duplicates=True,
         )
@@ -384,8 +431,8 @@ def run_optimization(
     sorted_F = res.F[sorted_indices]
     sorted_X = res.X[sorted_indices]
 
-    pop_path = os.path.join(output_dir, "pareto_population.csv")
-    obj_path = os.path.join(output_dir, "pareto_objectives.csv")
+    pop_path = os.path.join(output_dir, "pareto_population_final.csv")
+    obj_path = os.path.join(output_dir, "pareto_objectives_final.csv")
 
     np.savetxt(pop_path, sorted_X.astype(int), delimiter=",", fmt="%d")
     np.savetxt(obj_path, sorted_F, delimiter=",")
