@@ -431,8 +431,8 @@ def run_optimization(
     sorted_F = res.F[sorted_indices]
     sorted_X = res.X[sorted_indices]
 
-    pop_path = os.path.join(output_dir, "pareto_population.csv")
-    obj_path = os.path.join(output_dir, "pareto_objectives.csv")
+    pop_path = os.path.join(output_dir, "pareto_population_final.csv")
+    obj_path = os.path.join(output_dir, "pareto_objectives_final.csv")
 
     np.savetxt(pop_path, sorted_X.astype(int), delimiter=",", fmt="%d")
     np.savetxt(obj_path, sorted_F, delimiter=",")
