@@ -63,6 +63,6 @@ target/
 *tmp*
 __pycache__
 outputs
-plotting
+plotting*
 optimization_results
 .vscode/launch.json
