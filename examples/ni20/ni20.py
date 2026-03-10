@@ -19,31 +19,46 @@ from mtpoptimizer import (
 # --- Configuration ---
 DATA_DIR = "data"
 MTP_FILE = os.path.join(DATA_DIR, "20.almtp")
-XTWX_FILE = os.path.join(DATA_DIR, "xtwx.bin")  # Get this from the MLIP-3 fork
-XTWY_FILE = os.path.join(DATA_DIR, "xtwy.bin")  # Get this from the MLIP-3 fork
+DATA_DIR = "/home/richa/Documents/Projects/mlip-3/test/examples/09.extract_problem/out"
+TR_XTWX_FILE = os.path.join(DATA_DIR, "xtwx.bin")  # Get this from the MLIP-3 fork
+TR_XTWY_FILE = os.path.join(DATA_DIR, "xtwy.bin")  # Get this from the MLIP-3 fork
+
+DATA_DIR = "/home/richa/Documents/Projects/mlip-3/test/examples/09.extract_problem/val"
+VAL_XTWX_FILE = os.path.join(DATA_DIR, "xtwx.bin")  # Get this from the MLIP-3 fork
+VAL_XTWY_FILE = os.path.join(DATA_DIR, "xtwy.bin")  # Get this from the MLIP-3 fork
 
 OUTPUT_DIR = "optimization_results"
 
 if __name__ == "__main__":
 
-    xtwx = np.fromfile(XTWX_FILE, dtype=np.float64)
-    xtwy = np.fromfile(XTWY_FILE, dtype=np.float64)
-    xtwx = np.reshape(xtwx, (len(xtwy), len(xtwy)))
+    tr_xtwx = np.fromfile(TR_XTWX_FILE, dtype=np.float64)
+    tr_xtwy = np.fromfile(TR_XTWY_FILE, dtype=np.float64)
+    tr_xtwx = np.reshape(tr_xtwx, (len(tr_xtwy), len(tr_xtwy)))
+
+    val_xtwx = np.fromfile(VAL_XTWX_FILE, dtype=np.float64)
+    val_xtwy = np.fromfile(VAL_XTWY_FILE, dtype=np.float64)
+    val_xtwx = np.reshape(val_xtwx, (len(val_xtwy), len(val_xtwy)))
+
+    # val_xtwx = None
+    # val_xtwy = None
+    # val_xtwx = None
 
     result = run_optimization(
         mtp_file=MTP_FILE,
-        xtwx=xtwx,
-        xtwy=xtwy,
-        ytwy=1308558.94848743616603,  # Get this from the MLIP-3 fork
+        tr_xtwx=tr_xtwx,
+        tr_xtwy=tr_xtwy,
+        tr_ytwy=57642.050295515684411,  # Get this from the MLIP-3 fork
+        val_xtwx=val_xtwx,
+        val_xtwy=val_xtwy,
+        val_ytwy=2525.066019002886605,  # Get this from the MLIP-3 fork
         neigh_count=20.528098,  # Get this from the MLIP-3 fork
         regularization=1e-4,
         output_dir=OUTPUT_DIR,
-        end_condition=("n_iter", 20),
+        end_condition=("n_iter", 1),
         pop_size=96,
         show_plot=True,
         seed=None,
         algorithm="nsga",
-        save_interval=3,
     )
 
     if result:

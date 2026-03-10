@@ -95,12 +95,15 @@ class MTPPruningProblem(Problem):
     def __init__(
         self,
         mtp_file,
-        xtwx: np.ndarray,
-        xtwy: np.ndarray,
-        ytwy: float,
+        tr_xtwx: np.ndarray,
+        tr_xtwy: np.ndarray,
+        tr_ytwy: float,
         neigh_count: int,
         regularization: float,
         pop_size: int,
+        val_xtwx: Optional[np.ndarray] = None,
+        val_xtwy: Optional[np.ndarray] = None,
+        val_ytwy: Optional[float] = None,
     ):
         """
         Initialize the pymoo optimization problem.
@@ -109,12 +112,12 @@ class MTPPruningProblem(Problem):
         ----------
         mtp_file:
             File path to the MTP to optimize
-        xtwx : np.ndarray
-            Pre-computed XᵀWX matrix, shape (n_features, n_features)
-        xtwy : np.ndarray
-            Pre-computed XᵀWy vector, shape (n_features,)
-        ytwy : float
-            Pre-computed yᵀWy scalar
+        tr_xtwx : np.ndarray
+            Pre-computed training XᵀWX matrix, shape (n_features, n_features)
+        tr_xtwy : np.ndarray
+            Pre-computed training XᵀWy vector, shape (n_features,)
+        tr_ytwy : float
+            Pre-computed training yᵀWy scalar
         neigh_count : int
             Number of neighbors to optimize for
         regularization : float
@@ -122,16 +125,34 @@ class MTPPruningProblem(Problem):
             Adds λI to XᵀWX for numerical stability
         pop_size : int
             The population size to use during optimization
+        val_xtwx : np.ndarray, optional
+            Pre-computed validation XᵀWX matrix. If provided, SSE is evaluated
+            on the validation set rather than the training set.
+        val_xtwy : np.ndarray, optional
+            Pre-computed validation XᵀWy vector.
+        val_ytwy : float, optional
+            Pre-computed validation yᵀWy scalar.
         """
         # All processes initialize the problem to have access to calculators
         mtp_data = parse_mtp_file(mtp_file)
         self.n_species = mtp_data["species_count"]
         radial_basis_size = mtp_data["radial_basis_size"]
+        radial_func_count = mtp_data["radial_funcs_count"]
+        self.radial_param_count = self.n_species * radial_func_count * radial_basis_size
         n_var = mtp_data["alpha_scalar_moments"]
         self.cost_calculator = MTPCostCalculator(
             mtp_data, neigh_count, radial_basis_size
         )
-        self.sse_calculator = SSECalculator(xtwx, xtwy, ytwy, regularization, rank=RANK)
+        self.sse_calculator = SSECalculator(
+            tr_xtwx=tr_xtwx,
+            tr_xtwy=tr_xtwy,
+            tr_ytwy=tr_ytwy,
+            val_xtwx=val_xtwx,
+            val_xtwy=val_xtwy,
+            val_ytwy=val_ytwy,
+            regularization=regularization,
+            rank=RANK,
+        )
 
         self.eval_time = 0
         self.MPI_time = 0
@@ -179,8 +200,11 @@ class MTPPruningProblem(Problem):
                 results.append([np.nan, np.nan])
                 continue
 
-            # Append the species coeffs for SSE
-            full_mask = np.append(np.full((self.n_species), True, dtype=bool), x_i[1:])
+            # Append the species and radial coeffs for SSE
+            full_mask = np.append(
+                np.full((self.n_species + self.radial_param_count), True, dtype=bool),
+                x_i[1:],
+            )
             cost = self.cost_calculator.calculate(x_i[1:])
             sse = self.sse_calculator.calculate(full_mask)
             results.append([cost, sse])
@@ -272,10 +296,13 @@ class SaveInterval(Callback):
 
 def run_optimization(
     mtp_file: str,
-    xtwx: np.ndarray,
-    xtwy: np.ndarray,
-    ytwy: float,
+    tr_xtwx: np.ndarray,
+    tr_xtwy: np.ndarray,
+    tr_ytwy: float,
     neigh_count: int,
+    val_xtwx: Optional[np.ndarray] = None,
+    val_xtwy: Optional[np.ndarray] = None,
+    val_ytwy: Optional[float] = None,
     regularization: float = 0,
     output_dir: str = "outputs",
     end_condition: Tuple[str, int] = ("n_gen", 1000),
@@ -297,14 +324,21 @@ def run_optimization(
     ----------
     mtp_file : str
         Path to the MTP file to optimize
-    xtwx : np.ndarray
-        Precomputed XᵀWX matrix for SSE calculation
-    xtwy : np.ndarray
-        Precomputed XᵀWy vector for SSE calculation
-    ytwy : float
-        Precomputed yᵀWy scalar for SSE calculation
+    tr_xtwx : np.ndarray
+        Precomputed training XᵀWX matrix for SSE calculation
+    tr_xtwy : np.ndarray
+        Precomputed training XᵀWy vector for SSE calculation
+    tr_ytwy : float
+        Precomputed training yᵀWy scalar for SSE calculation
     neigh_count : int
         Number of neighbors for cost heuristic
+    val_xtwx : np.ndarray, optional
+        Precomputed validation XᵀWX matrix. If provided, SSE is evaluated on
+        the validation set rather than the training set.
+    val_xtwy : np.ndarray, optional
+        Precomputed validation XᵀWy vector.
+    val_ytwy : float, optional
+        Precomputed validation yᵀWy scalar.
     regularization : float, optional
         L2 regularization parameter, by default 0
     output_dir : str, optional
@@ -340,7 +374,16 @@ def run_optimization(
     np.random.seed(seed)
 
     problem = MTPPruningProblem(
-        mtp_file, xtwx, xtwy, ytwy, neigh_count, regularization, pop_size
+        mtp_file,
+        tr_xtwx,
+        tr_xtwy,
+        tr_ytwy,
+        neigh_count,
+        regularization,
+        pop_size,
+        val_xtwx=val_xtwx,
+        val_xtwy=val_xtwy,
+        val_ytwy=val_ytwy,
     )
 
     if IS_MPI and RANK > 0:  # MPI Workers
