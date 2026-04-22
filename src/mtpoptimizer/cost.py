@@ -115,13 +115,18 @@ def _calculate_jitted(
                 if rank < n_ranks:
                     rank_flags[rank] = True
 
-    # Cost Heuristic
-    max_rank_val = np.count_nonzero(rank_flags)
-    radial_func_count_val = np.count_nonzero(mus_flags)
+    # Apply Cost Heuristic
+    max_rank_val = 0
+    for r in range(len(rank_flags) - 1, -1, -1):
+        if rank_flags[r]:
+            max_rank_val = r + 1
+            break
+
+    n_mu_val = np.count_nonzero(mus_flags)
 
     precompute = 4 * max_rank_val
     radial_basis = 8 * radial_basis_size + 14
-    radial_vals = 4 * radial_func_count_val * radial_basis_size
+    radial_vals = 4 * n_mu_val * radial_basis_size
     basics = 39 * nbasic_remaining
     times = 9 * ntimes_remaining
 
