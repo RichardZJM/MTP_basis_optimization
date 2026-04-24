@@ -1,15 +1,9 @@
-"""
-Module for computing computational cost heuristics of an MTP.
-
-This module provides functionality to estimate the computational cost of evaluating a pruned MTP structure. Numba is used for high-performance computation.
-"""
-
 import numpy as np
 import numba
 
 
 @numba.njit(cache=True)
-def _calculate_jitted(
+def _evaluate_and_canonicalize_jitted(
     mask: np.ndarray,
     num_moments: int,
     n_ranks: int,
@@ -23,12 +17,16 @@ def _calculate_jitted(
     base_cost: float,
 ) -> float:
     """
-    Jit-compiled function to compute the computational cost heuristic.
+    Jit-compiled function to compute cost and apply Lamarckian rules in a single pass.
+
+    This function optimizes the boolean mask in-place by activating computationally
+    "free" or cheap moments (Free-Ride and Fast-Fill heuristics), while dynamically
+    updating the structural trackers to calculate the final MTP evaluation cost.
 
     Parameters
     ----------
     mask : np.ndarray
-        Boolean mask indicating which scalar moments to keep
+        Boolean mask indicating which scalar moments to keep. Modified in-place.
     num_moments : int
         Total number of moments in the tree
     n_ranks : int
@@ -53,21 +51,19 @@ def _calculate_jitted(
     Returns
     -------
     float
-        Estimated computational cost relative to base_cost
+        The final estimated computational cost after in-place mask modifications,
+        normalized relative to base_cost.
     """
-
-    # Flags for mus and ranks included in preserved basics
+    # --- 1. Compute initial preserved state (Standard Backprop) ---
     mus_flags = np.zeros(n_mus, dtype=np.bool_)
     rank_flags = np.zeros(n_ranks, dtype=np.bool_)
-
-    # Mark preserved moments by backpropagating from kept outputs
     to_preserve = np.zeros(num_moments, dtype=np.bool_)
     queue = np.empty(num_moments, dtype=np.int32)
     qh = 0
     qt = 0
 
-    # Seed queue with moments explicitly selected by mask
-    for i in range(len(mask)):
+    n_mask = len(mask)
+    for i in range(n_mask):
         if mask[i]:
             m = scalar_indices[i]
             if not to_preserve[m]:
@@ -75,11 +71,9 @@ def _calculate_jitted(
                 queue[qt] = m
                 qt += 1
 
-    # Backpropagate: for each preserved child, preserve its parents (p1, p2)
     while qh < qt:
         child = queue[qh]
         qh += 1
-
         start = parents_idx[child]
         end = parents_idx[child + 1]
         for j in range(start, end):
@@ -96,16 +90,15 @@ def _calculate_jitted(
                 queue[qt] = p2
                 qt += 1
 
-    # Recompute nbasic, ntimes, and update root counters by accounting preserved basics
+    # --- 2. Calculate initial cost components ---
     ntimes_remaining = 0
     nbasic_remaining = 0
-
     for i in range(num_moments):
         start = parents_idx[i]
         end = parents_idx[i + 1]
         if to_preserve[i]:
             ntimes_remaining += end - start
-            if start == end:  # basic
+            if start == end:
                 nbasic_remaining += 1
                 ele = basic_indices[i]
                 mu = ele[0]
@@ -115,7 +108,6 @@ def _calculate_jitted(
                 if rank < n_ranks:
                     rank_flags[rank] = True
 
-    # Apply Cost Heuristic
     max_rank_val = 0
     for r in range(len(rank_flags) - 1, -1, -1):
         if rank_flags[r]:
@@ -124,22 +116,116 @@ def _calculate_jitted(
 
     n_mu_val = np.count_nonzero(mus_flags)
 
-    precompute = 4 * max_rank_val
-    radial_basis = 8 * radial_basis_size + 14
-    radial_vals = 4 * n_mu_val * radial_basis_size
-    basics = 39 * nbasic_remaining
-    times = 9 * ntimes_remaining
+    # Absolute raw cost used to calculate the 10% threshold for Fast-Fill
+    raw_cost_abs = (
+        neigh_count
+        * (
+            24
+            + 4 * max_rank_val
+            + 8 * radial_basis_size
+            + 14
+            + 4 * n_mu_val * radial_basis_size
+            + 39 * nbasic_remaining
+        )
+        + 9 * ntimes_remaining
+    )
 
-    return (
-        neigh_count * (24 + precompute + radial_basis + radial_vals + basics) + times
-    ) / base_cost
+    # --- 3. RULE 1: Free-Ride Rule (Branchless) ---
+    for i in range(n_mask):
+        # Bitwise OR assignment removes the 'if' branch.
+        # LLVM auto-vectorizes this into SIMD instructions for maximum throughput.
+        mask[i] |= to_preserve[scalar_indices[i]]
+
+    # --- 4. RULE 2: Fast-Fill Rule ---
+    max_incremental_cost = 0.10 * raw_cost_abs
+
+    changed = True
+    while changed:
+        changed = False
+        for i in range(n_mask):
+            # Because Free-Ride already flipped the mask, this instantly
+            # skips free features without evaluating dependencies.
+            if not mask[i]:
+                m = scalar_indices[i]
+
+                # Check if all parents are preserved
+                deps_met = True
+                start = parents_idx[m]
+                end = parents_idx[m + 1]
+                for j in range(start, end):
+                    if (
+                        not to_preserve[parents_data[j, 0]]
+                        or not to_preserve[parents_data[j, 1]]
+                    ):
+                        deps_met = False
+                        break
+
+                if deps_met:
+                    incremental_cost = 0.0
+                    edges = end - start
+
+                    if edges > 0:
+                        incremental_cost = 9.0 * edges
+                    else:
+                        incremental_cost = float(neigh_count * 39)
+                        ele = basic_indices[m]
+                        mu = ele[0]
+                        rank = max(ele[1], ele[2], ele[3])
+
+                        if mu < n_mus and not mus_flags[mu]:
+                            incremental_cost += neigh_count * 4 * radial_basis_size
+                        if rank < n_ranks and not rank_flags[rank]:
+                            incremental_cost += neigh_count * 4
+
+                    if incremental_cost <= max_incremental_cost:
+                        mask[i] = True
+                        to_preserve[m] = True
+
+                        # Dynamically update the cost trackers instantly
+                        ntimes_remaining += edges
+                        if edges == 0:
+                            nbasic_remaining += 1
+                            ele = basic_indices[m]
+                            mu = ele[0]
+                            rank = max(ele[1], ele[2], ele[3])
+                            if mu < n_mus:
+                                mus_flags[mu] = True
+                            if rank < n_ranks:
+                                rank_flags[rank] = True
+
+                        changed = True
+
+    # --- 5. Final Cost Calculation ---
+    max_rank_val = 0
+    for r in range(len(rank_flags) - 1, -1, -1):
+        if rank_flags[r]:
+            max_rank_val = r + 1
+            break
+
+    n_mu_val = np.count_nonzero(mus_flags)
+
+    final_cost = (
+        neigh_count
+        * (
+            24
+            + 4 * max_rank_val
+            + 8 * radial_basis_size
+            + 14
+            + 4 * n_mu_val * radial_basis_size
+            + 39 * nbasic_remaining
+        )
+        + 9 * ntimes_remaining
+    )
+
+    return final_cost / base_cost
 
 
 class MTPCostCalculator:
     """
     Calculator for MTP computational cost heuristics.
 
-    This class prepares and maintains the data structures needed for efficient cost calculation of pruned MTP structures. It pre-processes and uses Numba to increase efficiency.
+    This class prepares and maintains the data structures needed for efficient cost
+    calculation of pruned MTP structures. It pre-processes and uses Numba to increase efficiency.
     """
 
     def __init__(self, mtp_data: dict, neigh_count: int, radial_basis_size: int):
@@ -155,8 +241,10 @@ class MTPCostCalculator:
 
         self._prepare_graph()
 
-        self.base_cost = 1
-        self.base_cost = self.calculate(np.ones_like(self.scalar_indices).astype(bool))
+        self.base_cost = 1.0
+        self.base_cost = self.evaluate_and_canonicalize(
+            np.ones_like(self.scalar_indices).astype(bool)
+        )
 
     def _prepare_graph(self) -> None:
         mus_set = set()
@@ -183,16 +271,19 @@ class MTPCostCalculator:
         self.parents_idx[self.num_moments] = len(flat_parents_list)
         self.parents_data = np.array(flat_parents_list, dtype=np.int32)
 
-    def calculate(self, mask: np.ndarray) -> float:
+    def evaluate_and_canonicalize(self, mask: np.ndarray) -> float:
         """
-        Calculate computational cost for a pruned MTP structure.
+        Calculate computational cost and mutate the MTP structure in a single pass.
 
-        This method is a high-level wrapper around the Numba-compiled _calculate_jitted function. It computes a normalized cost heuristic that estimates how computationally expensive the pruned MTP would be compared to the full structure.
+        This method is a high-level wrapper around the Numba-compiled
+        _evaluate_and_canonicalize_jitted function. It applies Lamarckian rules
+        in-place to the mask, then returns the estimated computational cost
+        normalized relative to the full MTP.
 
         Parameters
         ----------
         mask : np.ndarray
-            Boolean mask indicating which scalar moments to keep.
+            Boolean mask indicating which scalar moments to keep. Modified in-place.
             Length must match the number of scalar outputs without species coefficients.
 
         Returns
@@ -200,7 +291,7 @@ class MTPCostCalculator:
         float
             Estimated computational cost normalized relative to the full MTP.
         """
-        return _calculate_jitted(
+        return _evaluate_and_canonicalize_jitted(
             mask,
             self.num_moments,
             self.n_ranks,

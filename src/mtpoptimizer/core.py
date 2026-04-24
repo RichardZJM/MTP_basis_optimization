@@ -44,7 +44,9 @@ if IS_MPI:
         """
         The main loop for a worker process in MPI parallel mode.
 
-        This function implements workers which continuously receive population chunks from the master, evaluate them, and send results back until receiving a shutdown signal.
+        This function implements workers which continuously receive population chunks from
+        the master, evaluate them (applying Lamarckian updates), and send results and
+        repaired masks back until receiving a shutdown signal.
 
         Parameters
         ----------
@@ -62,6 +64,9 @@ if IS_MPI:
 
             results_chunk = problem.evaluate_chunk(problem.work_buffer)
             COMM.Gather(results_chunk, None, root=0)
+
+            # Gather the repaired genomes back to the master
+            COMM.Gather(problem.work_buffer, None, root=0)
 
     def shutdown_workers(problem) -> List[float]:
         """
@@ -155,7 +160,7 @@ class MTPPruningProblem(Problem):
                     np.zeros((pad_width, 2)).astype(np.float64)
                 )
 
-        super().__init__(n_var=n_var, n_obj=2, xl=0, xu=1, type_var=bool)
+        super().__init__(n_var=n_var, n_obj=2, type_var=bool, vtype=bool)
 
     def evaluate_chunk(self, x_chunk: np.ndarray) -> np.ndarray:
         """
@@ -164,12 +169,14 @@ class MTPPruningProblem(Problem):
         Parameters
         ----------
         x_chunk : np.ndarray
-            Array of shape (chunk_size, n_var + 1) containing boolean masks. First column is a flag indicating whether to process the row.
+            Array of shape (chunk_size, n_var + 1) containing boolean masks. First
+            column is a flag indicating whether to process the row. The remaining
+            columns are modified in-place by Lamarckian optimization rules.
 
         Returns
         -------
         np.ndarray
-            Array of shape (chunk_size, 2) containing [cost, sse] pairs for each evaluated solution.
+            Array of shape (chunk_size, 2) containing[cost, sse] pairs for each evaluated solution.
         """
         start_time = time.perf_counter()
         results = []
@@ -179,11 +186,14 @@ class MTPPruningProblem(Problem):
                 results.append([np.nan, np.nan])
                 continue
 
-            # Append the species coeffs for SSE
+            # Apply Lamarckian optimization rules in-place and evaluate cost
+            cost = self.cost_calculator.evaluate_and_canonicalize(x_i[1:])
+
+            # Append the species coeffs for SSE calculation
             full_mask = np.append(np.full((self.n_species), True, dtype=bool), x_i[1:])
-            cost = self.cost_calculator.calculate(x_i[1:])
             sse = self.sse_calculator.calculate(full_mask)
             results.append([cost, sse])
+
         self.eval_time += time.perf_counter() - start_time
         return np.ascontiguousarray(results, dtype=np.float64)
 
@@ -191,7 +201,9 @@ class MTPPruningProblem(Problem):
         """
         Population evaluation method required by pymoo framework.
 
-        This method is called by pymoo's `minimize` function to evaluate fitness for each generation of solutions.
+        This method is called by pymoo's `minimize` function to evaluate fitness for each
+        generation of solutions. It supports Lamarckian evolution by updating the `out`
+        dictionary with repaired population masks.
 
         Parameters
         ----------
@@ -199,7 +211,8 @@ class MTPPruningProblem(Problem):
             Population matrix of shape (n_individuals, n_var) containing
             boolean masks for each solution
         out : dict
-            Dictionary that will store the fitness values under key 'F'
+            Dictionary that will store the fitness values under key 'F' and the
+            repaired genomes under key 'X'.
         *args, **kwargs
             Additional arguments passed by pymoo (unused)
         """
@@ -217,9 +230,14 @@ class MTPPruningProblem(Problem):
             results_chunk = self.evaluate_chunk(self.work_buffer)
             root_time_taken = time.perf_counter() - start_time
             COMM.Gather(results_chunk, self.res_buffer, root=0)
+
+            # Gather the repaired genomes from all processes
+            COMM.Gather(self.work_buffer, self.send_buffer, root=0)
+
             self.gather_time += MPI.Wtime() - MPI_start_time - root_time_taken
 
             out["F"] = self.res_buffer[: len(X)]
+            # out["X"] = self.send_buffer[: len(X), 1:].astype(bool)
 
         else:  # Serial execution
             # Set up the flags and chunks
@@ -229,6 +247,7 @@ class MTPPruningProblem(Problem):
 
             results = self.evaluate_chunk(work_chunk)
             out["F"] = results
+            # out["X"] = work_chunk[:, 1:].astype(bool)
 
 
 class SaveInterval(Callback):
@@ -387,6 +406,7 @@ def run_optimization(
             crossover=UniformCrossover(),
             callback=callback,
             mutation=BitflipMutation(prob_var=mutation_rate),
+            eliminate_duplicates=True,
         )
     else:
         solver = NSGA2(
