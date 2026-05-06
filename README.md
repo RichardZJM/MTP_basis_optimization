@@ -1,8 +1,25 @@
 <a id="readme-top"></a>
 
-<br />
-<div align="center">
+> ## 📌 Repository status
+>
+> This repository contains the original implementation used in the associated published paper.
+>
+> It remains functional and is preserved for reproducibility.
+>
+> A newer implementation is available and should be preferred for all new usage:
+> https://github.com/RichardZJM/mlip-3-prune
+>
+> The new version is a reimplementation forked from MLIP-3 with several improvements:
+>
+> - Improved convergence and Pareto Fronts using Lamarckian evolution
+> - Support for separate training and validation sets
+> - Improved usability while retaining all MLIP-3 functionality
+> - Improved performance (evaluations per second)
+> - Better scaling with MPI parallelization
+> - Improved numerical stability
+>   <br />
 
+<div align="center">
 <h1 align="center">MTP Basis Optimization</h1>
 
   <p align="center">
@@ -13,7 +30,7 @@
     <br />
     <a href="https://github.com/RichardZJM/MTP_basis_optimization">Read Paper »</a>
     <br />
-    <a href="https://github.com/RichardZJM/mlip3-extract">Matrix Problem Extraction Code »</a>
+    <a href="https://github.com/RichardZJM/mlip-3-prune/tree/paper_reference">Matrix Problem Extraction Code »</a>
 
   </p>
 </div>
